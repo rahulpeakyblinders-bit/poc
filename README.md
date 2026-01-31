@@ -19,7 +19,6 @@ Instead of one agent, this system spins up multiple specialized agents that coll
 
 ### Action Agent
 - Executes safe actions (restart pod, rollback deploy, scale infra).
-- Uses Elastic A2A server to manage agent identity, permissions, and audit trails.
 
 ### Narrator Agent
 - Writes a human-readable postmortem.
