@@ -23,32 +23,6 @@ Instead of one agent, this system spins up multiple specialized agents that coll
 ### Narrator Agent
 - Writes a human-readable postmortem.
 
-## Agent orchestration
-Every agent is managed with the Elastic A2A server:
-https://www.elastic.co/docs/explore-analyze/ai-features/agent-builder/a2a-server
-
-This keeps agent identity, permissions, and action traces centralized for safe execution.
-
-## MCP server configuration (Elastic A2A)
-Use the Elastic A2A MCP endpoint to manage tools and create agents. Keep credentials out of source control by exporting environment variables locally.
-
-```bash
-export ELASTIC_MCP_URL="https://your-mcp-endpoint.example.com/api/agent_builder/mcp"
-export ELASTIC_URL="https://your-elasticsearch-endpoint.example.com:443"
-export ELASTIC_API_KEY="YOUR_API_KEY"
-```
-
-From there, connect your MCP client to `${ELASTIC_MCP_URL}` and register tools/agents with the A2A server using your MCP client of choice. Store API keys in your secret manager or local `.env` file (do not commit secrets).
-
-## Web UI
-A React-based web UI highlights each agent, their responsibilities, and the incident workflow. It is designed for demos and stakeholder reviews.
-
-### Run locally
-```bash
-python -m http.server 4173
-```
-Then open `http://localhost:4173`.
-
 ## Why judges love it
 - Demonstrates Elastic’s core strengths (logs, observability, correlation).
 - True multi-step reasoning across agents.
