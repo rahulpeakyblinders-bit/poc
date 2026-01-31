@@ -23,21 +23,6 @@ Instead of one agent, this system spins up multiple specialized agents that coll
 ### Narrator Agent
 - Writes a human-readable postmortem.
 
-## Agent orchestration
-Every agent is managed with the Elastic A2A server:
-https://www.elastic.co/docs/explore-analyze/ai-features/agent-builder/a2a-server
-
-This keeps agent identity, permissions, and action traces centralized for safe execution.
-
-## Web UI
-A React-based web UI highlights each agent, their responsibilities, and the incident workflow. It is designed for demos and stakeholder reviews.
-
-### Run locally
-```bash
-python -m http.server 4173
-```
-Then open `http://localhost:4173`.
-
 ## Why judges love it
 - Demonstrates Elastic’s core strengths (logs, observability, correlation).
 - True multi-step reasoning across agents.
