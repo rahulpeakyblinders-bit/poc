@@ -725,6 +725,84 @@ app.post('/api/kibana/converse', async (req, res) => {
   res.end();
 });
 
+// ─── A2A (Agent-to-Agent) proxy routes ───────────────────────────────────────
+
+// GET agent card — discovery metadata (name, skills, capabilities)
+app.get('/api/a2a/:agentId/card', async (req, res) => {
+  try {
+    const url = `${KIBANA_ENDPOINT}/api/agent_builder/a2a/${req.params.agentId}.json`;
+    const resp = await fetch(url, { headers: kibanaHeaders() });
+    if (!resp.ok) {
+      const body = await resp.text();
+      return res.status(resp.status).json({ error: `Kibana ${resp.status}: ${body}` });
+    }
+    res.json(await resp.json());
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST A2A task — JSON-RPC 2.0 call to an agent (synchronous, no streaming)
+app.post('/api/a2a/:agentId/task', async (req, res) => {
+  const { message, conversationId, taskId } = req.body;
+  if (!message) return res.status(400).json({ error: 'message required' });
+
+  const msgId = `msg-${Date.now()}`;
+  const rpcBody = {
+    id: taskId || `task-${Date.now()}`,
+    jsonrpc: '2.0',
+    method: 'message/send',
+    params: {
+      message: {
+        messageId: msgId,
+        role: 'user',
+        parts: [{ kind: 'text', text: message }],
+      },
+      ...(conversationId ? { contextId: conversationId } : {}),
+    },
+  };
+
+  try {
+    const url = `${KIBANA_ENDPOINT}/api/agent_builder/a2a/${req.params.agentId}`;
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: kibanaHeaders(),
+      body: JSON.stringify(rpcBody),
+    });
+
+    if (!resp.ok) {
+      const body = await resp.text();
+      return res.status(resp.status).json({ error: `Kibana ${resp.status}: ${body}` });
+    }
+
+    const data = await resp.json();
+
+    // Handle JSON-RPC error
+    if (data?.error) {
+      return res.status(400).json({ error: data.error.message || JSON.stringify(data.error), raw: data });
+    }
+
+    // Normalise A2A message/send response (protocol 0.3.0)
+    // result.parts[] contains { kind: 'text', text: '...' }
+    const result = data?.result ?? data;
+    const parts = result?.parts || [];
+    const message_text =
+      parts.map(p => p.text || p.content || '').filter(Boolean).join('\n') ||
+      (typeof result === 'string' ? result : null) ||
+      JSON.stringify(result);
+
+    res.json({
+      id: data.id,
+      conversationId: result?.contextId,   // use contextId for multi-turn continuity
+      taskId: result?.taskId,
+      message: message_text,
+      raw: data,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // MCP tools API route — expose discovered Elastic Agent Builder tools to UI
 app.get('/api/mcp/tools', (_req, res) => {
   res.json({
