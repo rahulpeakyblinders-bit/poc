@@ -138,6 +138,9 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isPipelining, setIsPipelining] = useState(false);
   const [pipelineStep, setPipelineStep] = useState(null); // 'detection' | 'root_cause' | 'fix_proposal' | null
+  const [lastFixProposal, setLastFixProposal] = useState(null); // text from Fix Proposal Agent
+  const [workflowState, setWorkflowState] = useState(null);
+  // workflowState: { phase: 'generating'|'ready'|'creating'|'running'|'done'|'error', yaml, workflowId, executionId, error }
   const [serverStatus, setServerStatus] = useState('checking');
   const [elasticStatus, setElasticStatus] = useState(null);
   const [mcpStatus, setMcpStatus] = useState(null); // { connected, tools }
@@ -423,6 +426,8 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
     kibanaConversationIdRef.current = null;
     window.speechSynthesis?.cancel();
     setIsSpeaking(false);
+    setLastFixProposal(null);
+    setWorkflowState(null);
   };
 
   // A2A multi-agent pipeline: Detection → Root Cause → Fix Proposal
@@ -436,6 +441,8 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
     if (!query?.trim() || isPipelining) return;
     setIsPipelining(true);
     setTranscript('');
+    setLastFixProposal(null);
+    setWorkflowState(null);
 
     // Add user message once
     setConversation(prev => [...prev, { role: 'user', text: query }]);
@@ -449,6 +456,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
         streaming: true,
         agentName: agent.label,
         agentColor: agent.color,
+        agentStep: agent.step,
       }]);
 
       try {
@@ -460,18 +468,27 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
         const data = await res.json();
         const text = data.error ? `⚠️ ${data.error}` : (data.message || '(no response)');
 
+        // Capture Fix Proposal response for workflow deployment
+        if (agent.step === 'fix_proposal' && !data.error) {
+          setLastFixProposal(text);
+        }
+
         // Replace placeholder with real response
         setConversation(prev => {
           const updated = [...prev];
           const last = updated.findLastIndex(m => m.agentName === agent.label && m.streaming);
-          if (last !== -1) updated[last] = { role: 'assistant', text, agentName: agent.label, agentColor: agent.color };
+          if (last !== -1) updated[last] = {
+            role: 'assistant', text, agentName: agent.label, agentColor: agent.color, agentStep: agent.step,
+          };
           return updated;
         });
       } catch (err) {
         setConversation(prev => {
           const updated = [...prev];
           const last = updated.findLastIndex(m => m.agentName === agent.label && m.streaming);
-          if (last !== -1) updated[last] = { role: 'assistant', text: `⚠️ ${err.message}`, agentName: agent.label, agentColor: agent.color };
+          if (last !== -1) updated[last] = {
+            role: 'assistant', text: `⚠️ ${err.message}`, agentName: agent.label, agentColor: agent.color, agentStep: agent.step,
+          };
           return updated;
         });
       }
@@ -480,6 +497,60 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
     setPipelineStep(null);
     setIsPipelining(false);
   }, [isPipelining]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Generate Elastic Workflow YAML from the last fix proposal
+  const generateWorkflow = useCallback(async () => {
+    if (!lastFixProposal) return;
+    setWorkflowState({ phase: 'generating' });
+    try {
+      const res = await fetch('/api/workflows/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fixProposal: lastFixProposal }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setWorkflowState({ phase: 'ready', yaml: data.yaml });
+    } catch (err) {
+      setWorkflowState({ phase: 'error', error: err.message });
+    }
+  }, [lastFixProposal]);
+
+  // Create workflow in Kibana and run it
+  const deployWorkflow = useCallback(async (yaml) => {
+    setWorkflowState(prev => ({ ...prev, phase: 'creating' }));
+    try {
+      // Create the workflow
+      const createRes = await fetch('/api/workflows/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ yaml }),
+      });
+      const createData = await createRes.json();
+      if (createData.error) throw new Error(`Create failed: ${createData.error}`);
+
+      const workflowId = createData.id || createData.workflow_id || createData._id;
+      setWorkflowState(prev => ({ ...prev, phase: 'running', workflowId }));
+
+      if (workflowId) {
+        // Run the workflow
+        const runRes = await fetch(`/api/workflows/${workflowId}/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({}),
+        });
+        const runData = await runRes.json();
+        if (runData.error) throw new Error(`Run failed: ${runData.error}`);
+        const executionId = runData.id || runData.execution_id || runData._id;
+        setWorkflowState(prev => ({ ...prev, phase: 'done', workflowId, executionId }));
+      } else {
+        // Created but no ID returned — still treat as success
+        setWorkflowState(prev => ({ ...prev, phase: 'done' }));
+      }
+    } catch (err) {
+      setWorkflowState(prev => ({ ...prev, phase: 'error', error: err.message }));
+    }
+  }, []);
 
   return (
     <div className="voice-agent-page">
@@ -642,6 +713,61 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
               {pipelineStep === 'detection' && 'Detection Agent analyzing…'}
               {pipelineStep === 'root_cause' && 'Root Cause Agent correlating…'}
               {pipelineStep === 'fix_proposal' && 'Fix Proposal Agent generating…'}
+            </div>
+          )}
+          {/* Deploy Workflow — shown after Agent Swarm produces a Fix Proposal */}
+          {lastFixProposal && !isPipelining && !workflowState && (
+            <button className="workflow-deploy-btn" onClick={generateWorkflow} title="Generate an Elastic Workflow from the Fix Proposal and deploy it">
+              🚀 Deploy Workflow
+            </button>
+          )}
+          {workflowState && (
+            <div className="workflow-panel">
+              {workflowState.phase === 'generating' && (
+                <div className="workflow-status generating">
+                  <span className="pipeline-dot" /> Generating Elastic Workflow YAML…
+                </div>
+              )}
+              {workflowState.phase === 'ready' && (
+                <>
+                  <div className="workflow-yaml-header">
+                    <span className="workflow-label">⚡ Generated Workflow</span>
+                    <div className="workflow-yaml-actions">
+                      <button className="ghost workflow-copy-btn" onClick={() => navigator.clipboard?.writeText(workflowState.yaml)} title="Copy YAML">
+                        📋 Copy
+                      </button>
+                      <button className="workflow-deploy-btn" onClick={() => deployWorkflow(workflowState.yaml)}>
+                        ▶ Create &amp; Run in Kibana
+                      </button>
+                      <button className="ghost" onClick={() => setWorkflowState(null)} title="Dismiss">✕</button>
+                    </div>
+                  </div>
+                  <pre className="workflow-yaml-preview">{workflowState.yaml}</pre>
+                </>
+              )}
+              {workflowState.phase === 'creating' && (
+                <div className="workflow-status creating">
+                  <span className="pipeline-dot" /> Creating workflow in Kibana…
+                </div>
+              )}
+              {workflowState.phase === 'running' && (
+                <div className="workflow-status running">
+                  <span className="pipeline-dot" /> Triggering workflow run…
+                </div>
+              )}
+              {workflowState.phase === 'done' && (
+                <div className="workflow-status done">
+                  ✅ Workflow deployed{workflowState.workflowId ? ` (ID: ${workflowState.workflowId})` : ''}
+                  {workflowState.executionId && <span> · Execution: {workflowState.executionId}</span>}
+                  <button className="ghost workflow-dismiss" onClick={() => setWorkflowState(null)}>✕</button>
+                </div>
+              )}
+              {workflowState.phase === 'error' && (
+                <div className="workflow-status error">
+                  ⚠️ {workflowState.error}
+                  <button className="ghost workflow-dismiss" onClick={() => setWorkflowState(null)}>✕</button>
+                </div>
+              )}
             </div>
           )}
           {isSpeaking && (

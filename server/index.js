@@ -829,6 +829,92 @@ app.get('/api/mcp/tools', (_req, res) => {
   });
 });
 
+// ─── Elastic Workflows routes ─────────────────────────────────────────────────
+
+// Generate a workflow YAML from a fix proposal using Claude
+app.post('/api/workflows/generate', async (req, res) => {
+  const { fixProposal } = req.body;
+  if (!fixProposal) return res.status(400).json({ error: 'fixProposal required' });
+
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-opus-4-6',
+      max_tokens: 2048,
+      messages: [{
+        role: 'user',
+        content: `You are an Elastic Workflow YAML generator. Based on the SRE fix proposal below, generate a valid Elastic Workflow YAML that automates the remediation steps using Elasticsearch.
+
+Fix Proposal:
+${fixProposal}
+
+Generate a concise, valid Elastic Workflow YAML with:
+- name: short descriptive name (prefix with 🔧)
+- description: one-sentence description
+- enabled: true
+- tags: ["sre", "auto-remediation"]
+- triggers: [{type: manual}]
+- steps: realistic elasticsearch steps that check and remediate the issue
+  Use elasticsearch.request, elasticsearch.search, elasticsearch.indices.exists, or console steps as appropriate.
+  Include a final console step summarising the outcome.
+
+Return ONLY the YAML content, no markdown fences, no explanation.`,
+      }],
+    });
+    const yaml = response.content.find(b => b.type === 'text')?.text || '';
+    res.json({ yaml });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List workflows in Kibana
+app.get('/api/workflows/list', async (_req, res) => {
+  try {
+    const data = await kibanaFetch('/api/workflows');
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Create a workflow in Kibana
+app.post('/api/workflows/create', async (req, res) => {
+  const { yaml } = req.body;
+  if (!yaml) return res.status(400).json({ error: 'yaml required' });
+  try {
+    const data = await kibanaFetch('/api/workflows', {
+      method: 'POST',
+      body: JSON.stringify({ content: yaml }),
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Trigger a workflow run
+app.post('/api/workflows/:id/run', async (req, res) => {
+  try {
+    const data = await kibanaFetch(`/api/workflows/${req.params.id}/run`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get workflow execution status
+app.get('/api/workflows/:id/executions', async (req, res) => {
+  try {
+    const data = await kibanaFetch(`/api/workflows/${req.params.id}/executions`);
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── SPA fallback (production only) ──────────────────────────────────────────
 if (isProd) {
   app.get('*', (_req, res) => res.sendFile(join(distPath, 'index.html')));
