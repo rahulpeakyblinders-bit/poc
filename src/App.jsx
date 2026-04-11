@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { agents, timeline, integrations } from './agents.js';
 import VoiceAgent from './pages/VoiceAgent.jsx';
 import AgentBuilder from './pages/AgentBuilder.jsx';
@@ -11,7 +11,7 @@ const TABS = [
   { id: 'builder', label: 'Agent Builder' },
 ];
 
-function Dashboard({ onViewLiveIncidents }) {
+function Dashboard({ onViewLiveIncidents, onLaunchAgent }) {
   return (
     <>
       <header className="hero">
@@ -76,8 +76,8 @@ function Dashboard({ onViewLiveIncidents }) {
                 <span>{agent.focus}</span>
               </div>
               <p className="agent-summary">{agent.responsibilities[0]}</p>
-              <button type="button" className="link">
-                View details →
+              <button type="button" className="launch-btn" onClick={() => onLaunchAgent(agent.name)}>
+                Launch →
               </button>
             </article>
           ))}
@@ -138,9 +138,17 @@ function Dashboard({ onViewLiveIncidents }) {
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [voiceAutoQuery, setVoiceAutoQuery] = useState(null);
+  const [voiceLaunchAgent, setVoiceLaunchAgent] = useState(null);
+  const launchConsumedRef = useRef(false);
 
   const handleViewLiveIncidents = useCallback(() => {
     setVoiceAutoQuery(LIVE_INCIDENT_QUERY);
+    setActiveTab('voice');
+  }, []);
+
+  const handleLaunchAgent = useCallback((agentName) => {
+    launchConsumedRef.current = false;
+    setVoiceLaunchAgent(agentName);
     setActiveTab('voice');
   }, []);
 
@@ -163,8 +171,19 @@ export default function App() {
         </div>
       </nav>
 
-      {activeTab === 'dashboard' && <Dashboard onViewLiveIncidents={handleViewLiveIncidents} />}
-      {activeTab === 'voice' && <VoiceAgent autoQuery={voiceAutoQuery} onAutoQueryConsumed={() => setVoiceAutoQuery(null)} />}
+      {activeTab === 'dashboard' && (
+        <Dashboard
+          onViewLiveIncidents={handleViewLiveIncidents}
+          onLaunchAgent={handleLaunchAgent}
+        />
+      )}
+      {activeTab === 'voice' && (
+        <VoiceAgent
+          autoQuery={voiceAutoQuery}
+          onAutoQueryConsumed={() => setVoiceAutoQuery(null)}
+          launchAgent={voiceLaunchAgent}
+        />
+      )}
       {activeTab === 'builder' && <AgentBuilder />}
     </div>
   );

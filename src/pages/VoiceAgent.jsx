@@ -8,7 +8,7 @@ const SRE_KIBANA_AGENT = {
   focus: 'Initiator · Kibana',
   kibana: true,
   initiator: true,
-  kibanaId: 'test',
+  kibanaId: 'sre',
   responsibilities: [
     'First point of contact for any SRE or incident query.',
     'Routes to Detection, Root Cause, and Fix Proposal agents as needed.',
@@ -60,7 +60,7 @@ const ELASTIC_ANALYST_KIBANA_AGENT = {
   name: 'Elastic Analyst',
   focus: 'Data exploration & insights · Kibana',
   kibana: true,
-  kibanaId: 'elastic_analyst',
+  kibanaId: 'analyst',
   responsibilities: [
     'Runs deep ES|QL and KQL queries across all Elasticsearch indices.',
     'Surfaces trends, patterns, and statistical insights from raw data.',
@@ -128,7 +128,7 @@ const ALL_AGENTS = [
 
 const DETECTION_AGENT = DETECTION_KIBANA_AGENT;
 
-export default function VoiceAgent({ autoQuery, onAutoQueryConsumed }) {
+export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent }) {
   const [selectedAgent, setSelectedAgent] = useState(SRE_KIBANA_AGENT);
   const kibanaConversationIdRef = useRef(null);
   const [isListening, setIsListening] = useState(false);
@@ -136,6 +136,8 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed }) {
   const [conversation, setConversation] = useState([]);
   const [isThinking, setIsThinking] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isPipelining, setIsPipelining] = useState(false);
+  const [pipelineStep, setPipelineStep] = useState(null); // 'detection' | 'root_cause' | 'fix_proposal' | null
   const [serverStatus, setServerStatus] = useState('checking');
   const [elasticStatus, setElasticStatus] = useState(null);
   const [mcpStatus, setMcpStatus] = useState(null); // { connected, tools }
@@ -164,6 +166,18 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed }) {
   useEffect(() => {
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversation]);
+
+  // Launch a specific agent by name from the Dashboard
+  useEffect(() => {
+    if (!launchAgent) return;
+    const match = ALL_AGENTS.find(a => a.name === launchAgent);
+    if (match) {
+      setSelectedAgent(match);
+      kibanaConversationIdRef.current = null;
+      setConversation([]);
+      messagesRef.current = [];
+    }
+  }, [launchAgent]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-query: switch to Detection Agent and fire the query
   useEffect(() => {
@@ -411,6 +425,62 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed }) {
     setIsSpeaking(false);
   };
 
+  // A2A multi-agent pipeline: Detection → Root Cause → Fix Proposal
+  const PIPELINE_AGENTS = [
+    { id: 'detection_agent',  label: 'Detection Agent',   step: 'detection',   color: '#7c3aed' },
+    { id: 'root_cause_agent', label: 'Root Cause Agent',  step: 'root_cause',  color: '#0369a1' },
+    { id: 'solution_agent',   label: 'Fix Proposal Agent', step: 'fix_proposal', color: '#065f46' },
+  ];
+
+  const runPipeline = useCallback(async (query) => {
+    if (!query?.trim() || isPipelining) return;
+    setIsPipelining(true);
+    setTranscript('');
+
+    // Add user message once
+    setConversation(prev => [...prev, { role: 'user', text: query }]);
+
+    for (const agent of PIPELINE_AGENTS) {
+      setPipelineStep(agent.step);
+      // Add a "thinking" placeholder for this agent
+      setConversation(prev => [...prev, {
+        role: 'assistant',
+        text: '',
+        streaming: true,
+        agentName: agent.label,
+        agentColor: agent.color,
+      }]);
+
+      try {
+        const res = await fetch(`/api/a2a/${agent.id}/task`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: query, taskId: `${agent.id}-${Date.now()}` }),
+        });
+        const data = await res.json();
+        const text = data.error ? `⚠️ ${data.error}` : (data.message || '(no response)');
+
+        // Replace placeholder with real response
+        setConversation(prev => {
+          const updated = [...prev];
+          const last = updated.findLastIndex(m => m.agentName === agent.label && m.streaming);
+          if (last !== -1) updated[last] = { role: 'assistant', text, agentName: agent.label, agentColor: agent.color };
+          return updated;
+        });
+      } catch (err) {
+        setConversation(prev => {
+          const updated = [...prev];
+          const last = updated.findLastIndex(m => m.agentName === agent.label && m.streaming);
+          if (last !== -1) updated[last] = { role: 'assistant', text: `⚠️ ${err.message}`, agentName: agent.label, agentColor: agent.color };
+          return updated;
+        });
+      }
+    }
+
+    setPipelineStep(null);
+    setIsPipelining(false);
+  }, [isPipelining]); // eslint-disable-line react-hooks/exhaustive-deps
+
   return (
     <div className="voice-agent-page">
       <div className="voice-agent-header">
@@ -489,18 +559,26 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed }) {
         )}
 
         {conversation.map((msg, i) => (
-          <div key={i} className={`voice-bubble ${msg.role}`}>
+          <div key={i} className={`voice-bubble ${msg.role} ${msg.agentName ? 'pipeline-bubble' : ''}`}>
             {msg.role === 'assistant' && (
-              <div className={`voice-bubble-avatar ${isSpeaking && i === conversation.length - 1 ? 'speaking' : ''}`}>
-                {selectedAgent.name[0]}
+              <div
+                className={`voice-bubble-avatar ${isSpeaking && i === conversation.length - 1 ? 'speaking' : ''}`}
+                style={msg.agentColor ? { background: msg.agentColor } : undefined}
+              >
+                {(msg.agentName || selectedAgent.name)[0]}
               </div>
             )}
             <div className="voice-bubble-content">
+              {msg.agentName && (
+                <span className="pipeline-agent-label" style={{ color: msg.agentColor }}>
+                  {msg.agentName}
+                </span>
+              )}
               <div className="voice-bubble-text">
                 {msg.role === 'assistant' ? (
                   msg.text ? (
                     <ReactMarkdown>{msg.text}</ReactMarkdown>
-                  ) : (msg.streaming && isThinking && (
+                  ) : ((msg.streaming) && (
                     <span className="thinking-dots"><span /><span /><span /></span>
                   ))
                 ) : (
@@ -549,9 +627,22 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed }) {
 
         <div className="voice-controls">
           {transcript.trim() && !isListening && (
-            <button className="primary send-btn" onClick={() => sendMessage(transcript)} disabled={isThinking}>
-              {isThinking ? 'Querying…' : 'Send →'}
-            </button>
+            <>
+              <button className="primary send-btn" onClick={() => sendMessage(transcript)} disabled={isThinking || isPipelining}>
+                {isThinking ? 'Querying…' : 'Send →'}
+              </button>
+              <button className="pipeline-btn" onClick={() => runPipeline(transcript)} disabled={isThinking || isPipelining} title="Run Detection → Root Cause → Fix Proposal via A2A">
+                🐝 Agent Swarm
+              </button>
+            </>
+          )}
+          {isPipelining && (
+            <div className="pipeline-status">
+              <span className="pipeline-dot" />
+              {pipelineStep === 'detection' && 'Detection Agent analyzing…'}
+              {pipelineStep === 'root_cause' && 'Root Cause Agent correlating…'}
+              {pipelineStep === 'fix_proposal' && 'Fix Proposal Agent generating…'}
+            </div>
           )}
           {isSpeaking && (
             <button className="ghost" onClick={() => { window.speechSynthesis?.cancel(); setIsSpeaking(false); }}>

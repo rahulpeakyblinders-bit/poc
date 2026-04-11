@@ -181,6 +181,24 @@ button {
   flex: 1;
 }
 
+.launch-btn {
+  background: #eff6ff;
+  color: #2563eb;
+  border: 1.5px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: background 0.15s, color 0.15s;
+}
+.launch-btn:hover {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
 .link {
   background: transparent;
   color: #2563eb;
@@ -740,6 +758,55 @@ button {
 .send-btn {
   border-radius: 999px;
   font-size: 0.88rem;
+}
+
+/* A2A Pipeline button */
+.pipeline-btn {
+  background: linear-gradient(135deg, #7c3aed, #0369a1);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.15s;
+}
+.pipeline-btn:hover { opacity: 0.88; }
+.pipeline-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Pipeline running status */
+.pipeline-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #7c3aed;
+  font-weight: 600;
+}
+.pipeline-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #7c3aed;
+  animation: pulse 1s infinite;
+}
+
+/* Pipeline conversation bubbles */
+.pipeline-bubble .voice-bubble-content {
+  border-left: 3px solid currentColor;
+  padding-left: 10px;
+}
+.pipeline-agent-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+  display: block;
 }
 
 /* Listening wave animation */
