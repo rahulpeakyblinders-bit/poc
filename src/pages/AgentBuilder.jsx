@@ -59,6 +59,7 @@ export default function AgentBuilder() {
   const [activeTab, setActiveTab] = useState('build');
   const [testState, setTestState] = useState({}); // { [agentId]: { prompt, response, loading } }
   const [deployState, setDeployState] = useState({}); // { [agentId]: 'idle'|'deploying'|'done'|'error' }
+  const [kibanaChat, setKibanaChat] = useState({}); // { [agentId]: { prompt, messages, loading, conversationId } }
 
   const toggleTool = (toolId) => {
     setForm((f) => ({
@@ -192,6 +193,82 @@ export default function AgentBuilder() {
   useEffect(() => {
     if (activeTab === 'kibana') fetchKibanaAgents();
   }, [activeTab]);
+
+  // Chat with a Kibana agent via the converse API
+  const chatWithKibanaAgent = async (agent) => {
+    const prompt = kibanaChat[agent.id]?.prompt || '';
+    if (!prompt.trim()) return;
+
+    const userMsg = { role: 'user', text: prompt };
+    setKibanaChat((prev) => ({
+      ...prev,
+      [agent.id]: {
+        ...prev[agent.id],
+        prompt: '',
+        loading: true,
+        messages: [...(prev[agent.id]?.messages || []), userMsg, { role: 'assistant', text: '', streaming: true }],
+      },
+    }));
+
+    let full = '';
+    let newConversationId = kibanaChat[agent.id]?.conversationId;
+
+    try {
+      const res = await fetch('/api/kibana/converse', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: agent.id,
+          message: prompt,
+          conversationId: newConversationId,
+        }),
+      });
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        for (const line of decoder.decode(value).split('\n')) {
+          if (!line.startsWith('data: ')) continue;
+          const raw = line.slice(6);
+          if (raw === '[DONE]') break;
+          try {
+            const event = JSON.parse(raw);
+            if (event.error) {
+              full = `⚠️ ${event.error}`;
+            } else if (event.final) {
+              if (!full && event.text) full = event.text;
+            } else if (event.text) {
+              full += event.text;
+            } else if (event.reasoning) {
+              full += `_${event.reasoning}_\n\n`;
+            } else if (event.toolCall) {
+              full += `\`[${event.toolCall}]\` `;
+            } else if (event.toolProgress) {
+              full += `_${event.toolProgress}…_ `;
+            } else if (event.conversationId) {
+              newConversationId = event.conversationId;
+            }
+            setKibanaChat((prev) => {
+              const msgs = [...(prev[agent.id]?.messages || [])];
+              msgs[msgs.length - 1] = { role: 'assistant', text: full, streaming: true };
+              return { ...prev, [agent.id]: { ...prev[agent.id], messages: msgs, conversationId: newConversationId } };
+            });
+          } catch {}
+        }
+      }
+    } catch (err) {
+      full = `Error: ${err.message}`;
+    }
+
+    setKibanaChat((prev) => {
+      const msgs = [...(prev[agent.id]?.messages || [])];
+      msgs[msgs.length - 1] = { role: 'assistant', text: full, streaming: false };
+      return { ...prev, [agent.id]: { ...prev[agent.id], messages: msgs, loading: false, conversationId: newConversationId } };
+    });
+  };
 
   const modelLabel = (modelId) => MODELS.find((m) => m.id === modelId)?.label || modelId;
 
@@ -506,6 +583,57 @@ export default function AgentBuilder() {
                     {agent.model && <span className="meta-tag model-tag">{agent.model}</span>}
                     <span className="meta-tag kibana-tag">ID: {agent.id}</span>
                   </div>
+
+                  {/* Chat panel — converse directly with this Kibana agent */}
+                  {(() => {
+                    const kc = kibanaChat[agent.id] || {};
+                    return (
+                      <div className="test-panel kibana-chat-panel">
+                        {kc.messages && kc.messages.length > 0 && (
+                          <div className="kibana-chat-messages">
+                            {kc.messages.map((msg, mi) => (
+                              <div key={mi} className={`kibana-chat-msg ${msg.role}`}>
+                                <span className="kibana-chat-role">{msg.role === 'user' ? 'You' : agent.name?.split(' ')[0] || 'Agent'}</span>
+                                <span className="kibana-chat-text">
+                                  {msg.text || (msg.streaming && <span className="thinking-dots"><span /><span /><span /></span>)}
+                                  {msg.streaming && msg.text && <span className="cursor-blink" />}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="test-input-row">
+                          <input
+                            type="text"
+                            className="test-input"
+                            placeholder={`Ask ${agent.name || 'this agent'}…`}
+                            value={kc.prompt || ''}
+                            onChange={(e) =>
+                              setKibanaChat((prev) => ({ ...prev, [agent.id]: { ...prev[agent.id], prompt: e.target.value } }))
+                            }
+                            onKeyDown={(e) => { if (e.key === 'Enter' && kc.prompt?.trim()) chatWithKibanaAgent(agent); }}
+                            disabled={kc.loading}
+                          />
+                          <button
+                            className="primary"
+                            onClick={() => chatWithKibanaAgent(agent)}
+                            disabled={kc.loading || !kc.prompt?.trim()}
+                          >
+                            {kc.loading ? '…' : 'Chat'}
+                          </button>
+                        </div>
+                        {kc.conversationId && (
+                          <div className="kibana-conv-id">
+                            <span>Conv: {kc.conversationId.slice(0, 8)}…</span>
+                            <button className="ghost" style={{fontSize:'0.7rem', padding:'1px 6px'}}
+                              onClick={() => setKibanaChat((prev) => ({ ...prev, [agent.id]: {} }))}>
+                              New chat
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
             </div>

@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { agents, timeline, integrations } from './agents.js';
 import VoiceAgent from './pages/VoiceAgent.jsx';
 import AgentBuilder from './pages/AgentBuilder.jsx';
+
+const LIVE_INCIDENT_QUERY = 'Check for any incidents or issues in the last 7 days. Look for anomalies, errors, and service degradations across all indices.';
 
 const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
@@ -9,7 +11,7 @@ const TABS = [
   { id: 'builder', label: 'Agent Builder' },
 ];
 
-function Dashboard() {
+function Dashboard({ onViewLiveIncidents }) {
   return (
     <>
       <header className="hero">
@@ -22,7 +24,7 @@ function Dashboard() {
             with confidence.
           </p>
           <div className="hero-actions">
-            <button type="button" className="primary">
+            <button type="button" className="primary" onClick={onViewLiveIncidents}>
               View Live Incidents
             </button>
             <button type="button" className="ghost">
@@ -139,6 +141,12 @@ function Dashboard() {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [voiceAutoQuery, setVoiceAutoQuery] = useState(null);
+
+  const handleViewLiveIncidents = useCallback(() => {
+    setVoiceAutoQuery(LIVE_INCIDENT_QUERY);
+    setActiveTab('voice');
+  }, []);
 
   return (
     <div className="page">
@@ -159,8 +167,8 @@ export default function App() {
         </div>
       </nav>
 
-      {activeTab === 'dashboard' && <Dashboard />}
-      {activeTab === 'voice' && <VoiceAgent />}
+      {activeTab === 'dashboard' && <Dashboard onViewLiveIncidents={handleViewLiveIncidents} />}
+      {activeTab === 'voice' && <VoiceAgent autoQuery={voiceAutoQuery} onAutoQueryConsumed={() => setVoiceAutoQuery(null)} />}
       {activeTab === 'builder' && <AgentBuilder />}
     </div>
   );

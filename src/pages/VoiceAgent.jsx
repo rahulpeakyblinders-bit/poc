@@ -1,5 +1,59 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
+import ReactMarkdown from 'react-markdown';
 import { agents } from '../agents.js';
+
+// SRE Kibana agent used as the Initiator agent in Voice Mode
+const SRE_KIBANA_AGENT = {
+  name: 'SRE Agent',
+  focus: 'Initiator · Kibana',
+  kibana: true,
+  initiator: true,
+  kibanaId: 'test',
+  responsibilities: [
+    'First point of contact for any SRE or incident query.',
+    'Routes to Detection, Root Cause, and Fix Proposal agents as needed.',
+    'Backed by Kibana Agent Builder with live Elastic tools.',
+  ],
+};
+
+// Kibana-backed Detection Agent replaces the local one
+const DETECTION_KIBANA_AGENT = {
+  name: 'Detection Agent',
+  focus: 'Signals & anomalies · Kibana',
+  kibana: true,
+  kibanaId: 'detection_agent',
+  responsibilities: [
+    'Continuously monitors logs, metrics, and traces in Elasticsearch.',
+    'Runs anomaly detection and ES|QL queries to surface emerging incidents.',
+    'Assigns severity and detects incident clusters.',
+  ],
+};
+
+// Kibana-backed Root Cause Agent replaces the local one
+const ROOT_CAUSE_KIBANA_AGENT = {
+  name: 'Root Cause Agent',
+  focus: 'Correlation & dependency mapping · Kibana',
+  kibana: true,
+  kibanaId: 'root_cause_agent',
+  responsibilities: [
+    'Correlates signals across services and environments.',
+    'Builds a dependency graph: service → error → config → deploy.',
+    'Highlights the most likely blast radius and root cause.',
+  ],
+};
+
+// Kibana-backed Fix Proposal Agent replaces the local one
+const FIX_PROPOSAL_KIBANA_AGENT = {
+  name: 'Fix Proposal Agent',
+  focus: 'Remediation intelligence · Kibana',
+  kibana: true,
+  kibanaId: 'solution_agent',
+  responsibilities: [
+    'Searches runbooks, Git history, and past incidents.',
+    'Ranks remediation options with expected impact and risk.',
+    'Packages the top candidates for approval.',
+  ],
+};
 
 const AGENT_SYSTEM_PROMPTS = {
   'Detection Agent': `You are the Detection Agent for Elastic SRE. You have access to Elasticsearch tools to query real data.
@@ -50,8 +104,19 @@ const TOOL_ICONS = {
   aggregate: '📈',
 };
 
-export default function VoiceAgent() {
-  const [selectedAgent, setSelectedAgent] = useState(agents[0]);
+const ALL_AGENTS = [
+  SRE_KIBANA_AGENT,
+  DETECTION_KIBANA_AGENT,
+  ROOT_CAUSE_KIBANA_AGENT,
+  FIX_PROPOSAL_KIBANA_AGENT,
+  ...agents.filter(a => !['Detection Agent', 'Root Cause Agent', 'Fix Proposal Agent', 'Narrator Agent'].includes(a.name)),
+];
+
+const DETECTION_AGENT = DETECTION_KIBANA_AGENT;
+
+export default function VoiceAgent({ autoQuery, onAutoQueryConsumed }) {
+  const [selectedAgent, setSelectedAgent] = useState(SRE_KIBANA_AGENT);
+  const kibanaConversationIdRef = useRef(null);
   const [isListening, setIsListening] = useState(false);
   const [transcript, setTranscript] = useState('');
   const [conversation, setConversation] = useState([]);
@@ -64,6 +129,7 @@ export default function VoiceAgent() {
   const recognitionRef = useRef(null);
   const conversationEndRef = useRef(null);
   const messagesRef = useRef([]);
+  const sendMessageRef = useRef(null); // always points to latest sendMessage
 
   // Check server + Elastic health + MCP tools on mount
   useEffect(() => {
@@ -85,15 +151,38 @@ export default function VoiceAgent() {
     conversationEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [conversation]);
 
+  // Auto-query: switch to Detection Agent and fire the query
+  useEffect(() => {
+    if (!autoQuery) return;
+    setSelectedAgent(DETECTION_AGENT);
+    kibanaConversationIdRef.current = null;
+    setConversation([]);
+    messagesRef.current = [];
+    // Delay so React re-renders with new selectedAgent before sendMessage is called
+    // Note: onAutoQueryConsumed is called inside the timer to avoid clearing it prematurely
+    const t = setTimeout(() => {
+      onAutoQueryConsumed?.();
+      sendMessageRef.current?.(autoQuery);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [autoQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const speak = useCallback((text) => {
     if (!window.speechSynthesis) return;
     window.speechSynthesis.cancel();
-    const utterance = new SpeechSynthesisUtterance(text.slice(0, 600));
-    utterance.rate = 1.05;
-    utterance.onstart = () => setIsSpeaking(true);
-    utterance.onend = () => setIsSpeaking(false);
-    utterance.onerror = () => setIsSpeaking(false);
-    window.speechSynthesis.speak(utterance);
+    // Split into sentences to work around Chrome's ~200-char utterance bug
+    const chunks = text.match(/[^.!?\n]+[.!?\n]*/g) ?? [text];
+    let index = 0;
+    const speakNext = () => {
+      if (index >= chunks.length) { setIsSpeaking(false); return; }
+      const utterance = new SpeechSynthesisUtterance(chunks[index++].trim());
+      utterance.rate = 1.05;
+      if (index === 1) utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = speakNext;
+      utterance.onerror = () => setIsSpeaking(false);
+      window.speechSynthesis.speak(utterance);
+    };
+    speakNext();
   }, []);
 
   const sendMessage = useCallback(
@@ -117,55 +206,110 @@ export default function VoiceAgent() {
       let toolCalls = [];
 
       try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            messages: newMessages,
-            systemPrompt: AGENT_SYSTEM_PROMPTS[selectedAgent.name],
-          }),
-        });
+        if (selectedAgent.kibana) {
+          // ── Kibana Agent Builder path ──────────────────────────────────
+          const res = await fetch('/api/kibana/converse', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              agentId: selectedAgent.kibanaId,
+              message: text,
+              conversationId: kibanaConversationIdRef.current,
+            }),
+          });
 
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
 
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            for (const line of decoder.decode(value).split('\n')) {
+              if (!line.startsWith('data: ')) continue;
+              const raw = line.slice(6);
+              if (raw === '[DONE]') break;
+              try {
+                const event = JSON.parse(raw);
+                if (event.error) {
+                  fullResponse = `⚠️ ${event.error}`;
+                } else if (event.text) {
+                  fullResponse += event.text;
+                } else if (event.reasoning) {
+                  // skip reasoning in voice mode for conciseness
+                } else if (event.toolCall) {
+                  toolCalls = [...toolCalls, { name: event.toolCall, status: 'running' }];
+                } else if (event.toolProgress) {
+                  // update last tool call status
+                  if (toolCalls.length > 0) {
+                    toolCalls = toolCalls.map((tc, i) =>
+                      i === toolCalls.length - 1 ? { ...tc, status: 'running', progress: event.toolProgress } : tc
+                    );
+                  }
+                } else if (event.conversationId) {
+                  kibanaConversationIdRef.current = event.conversationId;
+                }
+                setConversation((prev) => {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = {
+                    role: 'assistant', text: fullResponse, streaming: true, toolCalls: [...toolCalls],
+                  };
+                  return updated;
+                });
+              } catch {}
+            }
+          }
+        } else {
+          // ── Local Anthropic /api/chat path ─────────────────────────────
+          const res = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              messages: newMessages,
+              systemPrompt: AGENT_SYSTEM_PROMPTS[selectedAgent.name],
+            }),
+          });
 
-          for (const line of decoder.decode(value).split('\n')) {
-            if (!line.startsWith('data: ')) continue;
-            const raw = line.slice(6);
-            if (raw === '[DONE]') break;
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
 
-            try {
-              const event = JSON.parse(raw);
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
 
-              if (event.text) {
-                fullResponse += event.text;
-              } else if (event.tool_call) {
-                toolCalls = [...toolCalls, { ...event.tool_call, status: 'running' }];
-              } else if (event.tool_result) {
-                toolCalls = toolCalls.map((tc) =>
-                  tc.name === event.tool_result.name
-                    ? { ...tc, status: 'done', result: event.tool_result.result }
-                    : tc
-                );
-              } else if (event.error) {
-                fullResponse += `\n\n⚠️ ${event.error}`;
-              }
+            for (const line of decoder.decode(value).split('\n')) {
+              if (!line.startsWith('data: ')) continue;
+              const raw = line.slice(6);
+              if (raw === '[DONE]') break;
 
-              setConversation((prev) => {
-                const updated = [...prev];
-                updated[updated.length - 1] = {
-                  role: 'assistant',
-                  text: fullResponse,
-                  streaming: true,
-                  toolCalls: [...toolCalls],
-                };
-                return updated;
-              });
-            } catch {}
+              try {
+                const event = JSON.parse(raw);
+
+                if (event.text) {
+                  fullResponse += event.text;
+                } else if (event.tool_call) {
+                  toolCalls = [...toolCalls, { ...event.tool_call, status: 'running' }];
+                } else if (event.tool_result) {
+                  toolCalls = toolCalls.map((tc) =>
+                    tc.name === event.tool_result.name
+                      ? { ...tc, status: 'done', result: event.tool_result.result }
+                      : tc
+                  );
+                } else if (event.error) {
+                  fullResponse += `\n\n⚠️ ${event.error}`;
+                }
+
+                setConversation((prev) => {
+                  const updated = [...prev];
+                  updated[updated.length - 1] = {
+                    role: 'assistant',
+                    text: fullResponse,
+                    streaming: true,
+                    toolCalls: [...toolCalls],
+                  };
+                  return updated;
+                });
+              } catch {}
+            }
           }
         }
       } catch (err) {
@@ -196,6 +340,9 @@ export default function VoiceAgent() {
     },
     [selectedAgent, isThinking, serverStatus, speak]
   );
+
+  // Keep ref in sync so autoQuery effect always calls the latest sendMessage
+  useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
 
   const startListening = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -242,6 +389,7 @@ export default function VoiceAgent() {
   const clearConversation = () => {
     setConversation([]);
     messagesRef.current = [];
+    kibanaConversationIdRef.current = null;
     window.speechSynthesis?.cancel();
     setIsSpeaking(false);
   };
@@ -279,13 +427,19 @@ export default function VoiceAgent() {
 
       {/* Agent selector */}
       <div className="agent-selector">
-        {agents.map((agent) => (
+        {ALL_AGENTS.map((agent) => (
           <button
             key={agent.name}
-            className={`agent-chip ${selectedAgent.name === agent.name ? 'active' : ''}`}
-            onClick={() => { setSelectedAgent(agent); clearConversation(); }}
+            className={`agent-chip ${selectedAgent.name === agent.name ? 'active' : ''} ${agent.initiator ? 'kibana-initiator' : ''}`}
+            onClick={() => {
+              setSelectedAgent(agent);
+              clearConversation();
+              kibanaConversationIdRef.current = null;
+            }}
           >
+            {agent.initiator && <span className="kibana-chip-dot" />}
             {agent.name}
+            {agent.initiator && <span className="initiator-badge">Initiator</span>}
           </button>
         ))}
       </div>
@@ -325,23 +479,16 @@ export default function VoiceAgent() {
               </div>
             )}
             <div className="voice-bubble-content">
-              {/* Tool calls indicator */}
-              {msg.role === 'assistant' && msg.toolCalls?.length > 0 && (
-                <div className="tool-calls-strip">
-                  {msg.toolCalls.map((tc, ti) => (
-                    <span key={ti} className={`tool-call-pill ${tc.status} ${tc.name.startsWith('mcp__') ? 'mcp-tool' : ''}`}>
-                      <span>{tc.name.startsWith('mcp__') ? '🤖' : (TOOL_ICONS[tc.name] || '🔧')}</span>
-                      {tc.name.startsWith('mcp__') ? tc.name.replace(/^mcp__/, '').replace(/_/g, ' ') : tc.name.replace(/_/g, ' ')}
-                      {tc.status === 'running' && <span className="tool-spinner" />}
-                      {tc.status === 'done' && <span className="tool-check">✓</span>}
-                    </span>
-                  ))}
-                </div>
-              )}
               <div className="voice-bubble-text">
-                {msg.text || (msg.streaming && isThinking && !msg.text && (
-                  <span className="thinking-dots"><span /><span /><span /></span>
-                ))}
+                {msg.role === 'assistant' ? (
+                  msg.text ? (
+                    <ReactMarkdown>{msg.text}</ReactMarkdown>
+                  ) : (msg.streaming && isThinking && (
+                    <span className="thinking-dots"><span /><span /><span /></span>
+                  ))
+                ) : (
+                  msg.text
+                )}
                 {msg.streaming && msg.text && <span className="cursor-blink" />}
               </div>
             </div>

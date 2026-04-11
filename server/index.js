@@ -13,6 +13,8 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 const ELASTIC_ENDPOINT = process.env.ELASTIC_ENDPOINT ||
   'https://poc-fbce28.es.northeurope.azure.elastic.cloud';
 const ELASTIC_API_KEY = process.env.ELASTIC_API_KEY || '';
+// Separate key for Kibana/Agent Builder — falls back to ELASTIC_API_KEY
+const KIBANA_API_KEY = process.env.KIBANA_API_KEY || ELASTIC_API_KEY;
 
 // Elastic Inference endpoint (Claude hosted on Elastic)
 const ELASTIC_INFERENCE_ID = process.env.ELASTIC_INFERENCE_ID ||
@@ -33,8 +35,8 @@ let mcpTools = []; // Raw MCP tool list (MCP format)
 let mcpToolsForClaude = []; // Converted to Anthropic tool format
 
 async function connectMCP() {
-  if (!ELASTIC_API_KEY) {
-    console.log('   MCP:       Skipped (no ELASTIC_API_KEY)');
+  if (!KIBANA_API_KEY) {
+    console.log('   MCP:       Skipped (no KIBANA_API_KEY)');
     return;
   }
   try {
@@ -43,7 +45,7 @@ async function connectMCP() {
       {
         requestInit: {
           headers: {
-            'Authorization': `ApiKey ${ELASTIC_API_KEY}`,
+            'Authorization': `ApiKey ${KIBANA_API_KEY}`,
             'kbn-xsrf': 'true',
           },
         },
@@ -543,7 +545,7 @@ const KIBANA_ENDPOINT = process.env.KIBANA_ENDPOINT ||
 
 function kibanaHeaders() {
   return {
-    'Authorization': `ApiKey ${ELASTIC_API_KEY}`,
+    'Authorization': `ApiKey ${KIBANA_API_KEY}`,
     'Content-Type': 'application/json',
     'kbn-xsrf': 'true',
   };
@@ -643,7 +645,7 @@ app.post('/api/kibana/converse', async (req, res) => {
   const send = (payload) => res.write(`data: ${JSON.stringify(payload)}\n\n`);
 
   try {
-    const body = { message };
+    const body = { input: message };
     if (conversationId) body.conversation_id = conversationId;
 
     const resp = await fetch(`${KIBANA_ENDPOINT}/api/agent_builder/converse/async`, {
@@ -664,24 +666,55 @@ app.post('/api/kibana/converse', async (req, res) => {
     }
 
     // Stream SSE events from Kibana to client
+    // Kibana async SSE event types: message_chunk, message_complete,
+    // conversation_id_set, conversation_created, reasoning, tool_call,
+    // tool_result, round_complete, error
+    let currentEventType = '';
+    let buffer = '';
     for await (const chunk of resp.body) {
-      const raw = chunk.toString();
-      for (const line of raw.split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6).trim();
-        if (data === '[DONE]') break;
-        try {
-          const event = JSON.parse(data);
-          // Normalize Kibana converse events to our SSE format
-          if (event.type === 'message' || event.content) {
-            send({ text: event.content || event.message || '' });
-          } else if (event.type === 'conversation_id') {
-            send({ conversationId: event.conversation_id });
-          } else {
-            // Pass-through unknown events
-            send({ kibana_event: event });
-          }
-        } catch {}
+      const raw = Buffer.isBuffer(chunk) ? chunk.toString('utf-8') : Buffer.from(chunk).toString('utf-8');
+      buffer += raw;
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // keep incomplete last line
+      for (const line of lines) {
+        if (line.startsWith('event: ')) {
+          currentEventType = line.slice(7).trim();
+        } else if (line.startsWith('data: ')) {
+          const data = line.slice(6).trim();
+          if (data === '[DONE]') break;
+          try {
+            // Kibana wraps all payloads as { "data": { ... } }
+            const outer = JSON.parse(data);
+            const payload = outer.data ?? outer;
+            switch (currentEventType) {
+              case 'error':
+                send({ error: payload.error?.message || payload.message || JSON.stringify(payload) });
+                break;
+              case 'message_chunk':
+                // text field is text_chunk
+                if (payload.text_chunk) send({ text: payload.text_chunk });
+                break;
+              case 'message_complete':
+                if (payload.content) send({ text: payload.content, final: true });
+                break;
+              case 'conversation_id_set':
+                send({ conversationId: payload.conversation_id });
+                break;
+              case 'reasoning':
+                if (!payload.transient && payload.reasoning) send({ reasoning: payload.reasoning });
+                break;
+              case 'tool_call':
+                send({ toolCall: payload.tool_id ?? payload.name ?? '' });
+                break;
+              case 'tool_progress':
+                if (payload.message) send({ toolProgress: payload.message });
+                break;
+              default:
+                if (payload.error) send({ error: payload.error?.message || payload.error });
+            }
+          } catch {}
+          currentEventType = '';
+        }
       }
     }
   } catch (err) {

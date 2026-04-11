@@ -405,6 +405,45 @@ button {
   box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
 }
 
+/* Kibana Initiator chip */
+.agent-chip.kibana-initiator {
+  background: #fff7ed;
+  color: #92400e;
+  border: 1.5px solid #f59e0b;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 10px;
+}
+.agent-chip.kibana-initiator:hover { background: #fef3c7; }
+.agent-chip.kibana-initiator.active {
+  background: #f59e0b;
+  color: #fff;
+  border-color: #f59e0b;
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.35);
+}
+.kibana-chip-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: #f59e0b;
+  flex-shrink: 0;
+}
+.agent-chip.kibana-initiator.active .kibana-chip-dot { background: #fff; }
+.initiator-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.agent-chip.kibana-initiator.active .initiator-badge {
+  background: rgba(255,255,255,0.25);
+  color: #fff;
+}
+
 /* Conversation area */
 .voice-conversation {
   flex: 1;
@@ -511,11 +550,10 @@ button {
 }
 
 .voice-bubble-text {
-  padding: 12px 16px;
+  padding: 14px 18px;
   border-radius: 18px;
-  font-size: 0.92rem;
-  line-height: 1.55;
-  white-space: pre-wrap;
+  font-size: 0.93rem;
+  line-height: 1.65;
 }
 
 .voice-bubble.user .voice-bubble-text {
@@ -528,6 +566,44 @@ button {
   background: #f1f5f9;
   color: #1e293b;
   border-bottom-left-radius: 6px;
+}
+
+/* Markdown rendering inside assistant bubbles */
+.voice-bubble.assistant .voice-bubble-text h1,
+.voice-bubble.assistant .voice-bubble-text h2,
+.voice-bubble.assistant .voice-bubble-text h3 {
+  font-weight: 700;
+  margin: 12px 0 6px;
+  color: #0f172a;
+}
+.voice-bubble.assistant .voice-bubble-text h1 { font-size: 1.1rem; }
+.voice-bubble.assistant .voice-bubble-text h2 { font-size: 1rem; }
+.voice-bubble.assistant .voice-bubble-text h3 { font-size: 0.95rem; }
+.voice-bubble.assistant .voice-bubble-text p {
+  margin: 0 0 8px;
+}
+.voice-bubble.assistant .voice-bubble-text p:last-child { margin-bottom: 0; }
+.voice-bubble.assistant .voice-bubble-text ul,
+.voice-bubble.assistant .voice-bubble-text ol {
+  margin: 4px 0 8px 20px;
+  padding: 0;
+}
+.voice-bubble.assistant .voice-bubble-text li { margin-bottom: 4px; }
+.voice-bubble.assistant .voice-bubble-text strong {
+  font-weight: 650;
+  color: #0f172a;
+}
+.voice-bubble.assistant .voice-bubble-text code {
+  background: #e2e8f0;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 0.85em;
+}
+.voice-bubble.assistant .voice-bubble-text hr {
+  border: none;
+  border-top: 1px solid #cbd5e1;
+  margin: 10px 0;
 }
 
 /* Thinking dots */
@@ -1366,6 +1442,72 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* ── Kibana agent chat panel ───────────────────────────────────────────────── */
+.kibana-chat-panel {
+  margin-top: 12px;
+  border-top: 1px solid #f59e0b30;
+  padding-top: 10px;
+}
+
+.kibana-chat-messages {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-bottom: 10px;
+  padding: 4px 0;
+}
+
+.kibana-chat-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kibana-chat-msg.user { align-items: flex-end; }
+.kibana-chat-msg.assistant { align-items: flex-start; }
+
+.kibana-chat-role {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #9ca3af;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.kibana-chat-text {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: 7px 11px;
+  border-radius: 10px;
+  max-width: 90%;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.kibana-chat-msg.user .kibana-chat-text {
+  background: #1d4ed8;
+  color: #fff;
+  border-radius: 10px 10px 2px 10px;
+}
+
+.kibana-chat-msg.assistant .kibana-chat-text {
+  background: #fef3c7;
+  color: #78350f;
+  border-radius: 10px 10px 10px 2px;
+}
+
+.kibana-conv-id {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: #9ca3af;
+  font-family: 'SF Mono', monospace;
 }
 
 @media (max-width: 600px) {
