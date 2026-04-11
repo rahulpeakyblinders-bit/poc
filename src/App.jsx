@@ -1,8 +1,17 @@
+import { useState } from 'react';
 import { agents, timeline, integrations } from './agents.js';
+import VoiceAgent from './pages/VoiceAgent.jsx';
+import AgentBuilder from './pages/AgentBuilder.jsx';
 
-function App() {
+const TABS = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'voice', label: 'Voice Agent' },
+  { id: 'builder', label: 'Agent Builder' },
+];
+
+function Dashboard() {
   return (
-    <div className="page">
+    <>
       <header className="hero">
         <div>
           <span className="badge">AI SRE Team</span>
@@ -124,8 +133,35 @@ function App() {
           </div>
         </div>
       </section>
-    </div>
+    </>
   );
 }
 
-export default App;
+export default function App() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+
+  return (
+    <div className="page">
+      <nav className="app-nav">
+        <div className="nav-brand">
+          <span className="badge">⚡ Elastic AI</span>
+        </div>
+        <div className="nav-tabs">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {activeTab === 'dashboard' && <Dashboard />}
+      {activeTab === 'voice' && <VoiceAgent />}
+      {activeTab === 'builder' && <AgentBuilder />}
+    </div>
+  );
+}
