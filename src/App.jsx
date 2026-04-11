@@ -69,17 +69,13 @@ function Dashboard({ onViewLiveIncidents }) {
           </button>
         </div>
         <div className="agent-grid">
-          {agents.map((agent) => (
+          {agents.filter(a => a.name !== 'Narrator Agent').map((agent) => (
             <article key={agent.name} className="agent-card">
               <div className="agent-header">
                 <h3>{agent.name}</h3>
                 <span>{agent.focus}</span>
               </div>
-              <ul>
-                {agent.responsibilities.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
+              <p className="agent-summary">{agent.responsibilities[0]}</p>
               <button type="button" className="link">
                 View details →
               </button>

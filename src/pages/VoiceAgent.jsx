@@ -55,6 +55,19 @@ const FIX_PROPOSAL_KIBANA_AGENT = {
   ],
 };
 
+// Kibana-backed Elastic Analyst Agent
+const ELASTIC_ANALYST_KIBANA_AGENT = {
+  name: 'Elastic Analyst',
+  focus: 'Data exploration & insights · Kibana',
+  kibana: true,
+  kibanaId: 'elastic_analyst',
+  responsibilities: [
+    'Runs deep ES|QL and KQL queries across all Elasticsearch indices.',
+    'Surfaces trends, patterns, and statistical insights from raw data.',
+    'Answers ad-hoc data questions with live Elastic tooling.',
+  ],
+};
+
 const AGENT_SYSTEM_PROMPTS = {
   'Detection Agent': `You are the Detection Agent for Elastic SRE. You have access to Elasticsearch tools to query real data.
 When asked about incidents or anomalies:
@@ -109,7 +122,8 @@ const ALL_AGENTS = [
   DETECTION_KIBANA_AGENT,
   ROOT_CAUSE_KIBANA_AGENT,
   FIX_PROPOSAL_KIBANA_AGENT,
-  ...agents.filter(a => !['Detection Agent', 'Root Cause Agent', 'Fix Proposal Agent', 'Narrator Agent'].includes(a.name)),
+  ...agents.filter(a => !['Detection Agent', 'Root Cause Agent', 'Fix Proposal Agent', 'Narrator Agent', 'Elastic Analyst'].includes(a.name)),
+  ELASTIC_ANALYST_KIBANA_AGENT,
 ];
 
 const DETECTION_AGENT = DETECTION_KIBANA_AGENT;
@@ -354,15 +368,21 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed }) {
     recognition.continuous = false;
     recognition.interimResults = true;
     recognition.lang = 'en-US';
+    let capturedText = '';
     recognition.onresult = (event) => {
       let final = '', interim = '';
       for (const result of event.results) {
         if (result.isFinal) final += result[0].transcript;
         else interim += result[0].transcript;
       }
-      setTranscript(final || interim);
+      capturedText = final || interim;
+      setTranscript(capturedText);
     };
-    recognition.onend = () => setIsListening(false);
+    // Auto-send as soon as speech ends — no button click needed
+    recognition.onend = () => {
+      setIsListening(false);
+      if (capturedText.trim()) sendMessageRef.current?.(capturedText);
+    };
     recognition.onerror = (e) => { if (e.error !== 'no-speech') console.error(e.error); setIsListening(false); };
     recognitionRef.current = recognition;
     recognition.start();
@@ -372,19 +392,16 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed }) {
 
   const stopListening = useCallback(() => {
     recognitionRef.current?.stop();
-    setIsListening(false);
+    // onend will fire automatically and handle the send
   }, []);
 
   const handleMicClick = useCallback(() => {
     if (isListening) {
       stopListening();
-      setTimeout(() => {
-        setTranscript((t) => { if (t.trim()) sendMessage(t); return t; });
-      }, 400);
     } else {
       startListening();
     }
-  }, [isListening, startListening, stopListening, sendMessage]);
+  }, [isListening, startListening, stopListening]);
 
   const clearConversation = () => {
     setConversation([]);
