@@ -1,8 +1,19 @@
+import { useState, useCallback } from 'react';
 import { agents, timeline, integrations } from './agents.js';
+import VoiceAgent from './pages/VoiceAgent.jsx';
+import AgentBuilder from './pages/AgentBuilder.jsx';
 
-function App() {
+const LIVE_INCIDENT_QUERY = 'Check for any incidents or issues in the last 7 days. Look for anomalies, errors, and service degradations across all indices.';
+
+const TABS = [
+  { id: 'dashboard', label: 'Dashboard' },
+  { id: 'voice', label: 'Voice Agent' },
+  { id: 'builder', label: 'Agent Builder' },
+];
+
+function Dashboard({ onViewLiveIncidents }) {
   return (
-    <div className="page">
+    <>
       <header className="hero">
         <div>
           <span className="badge">AI SRE Team</span>
@@ -13,7 +24,7 @@ function App() {
             with confidence.
           </p>
           <div className="hero-actions">
-            <button type="button" className="primary">
+            <button type="button" className="primary" onClick={onViewLiveIncidents}>
               View Live Incidents
             </button>
             <button type="button" className="ghost">
@@ -124,8 +135,41 @@ function App() {
           </div>
         </div>
       </section>
-    </div>
+    </>
   );
 }
 
-export default App;
+export default function App() {
+  const [activeTab, setActiveTab] = useState('dashboard');
+  const [voiceAutoQuery, setVoiceAutoQuery] = useState(null);
+
+  const handleViewLiveIncidents = useCallback(() => {
+    setVoiceAutoQuery(LIVE_INCIDENT_QUERY);
+    setActiveTab('voice');
+  }, []);
+
+  return (
+    <div className="page">
+      <nav className="app-nav">
+        <div className="nav-brand">
+          <span className="badge">⚡ Elastic AI</span>
+        </div>
+        <div className="nav-tabs">
+          {TABS.map((tab) => (
+            <button
+              key={tab.id}
+              className={`nav-tab ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </nav>
+
+      {activeTab === 'dashboard' && <Dashboard onViewLiveIncidents={handleViewLiveIncidents} />}
+      {activeTab === 'voice' && <VoiceAgent autoQuery={voiceAutoQuery} onAutoQueryConsumed={() => setVoiceAutoQuery(null)} />}
+      {activeTab === 'builder' && <AgentBuilder />}
+    </div>
+  );
+}
