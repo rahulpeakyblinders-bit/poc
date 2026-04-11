@@ -181,7 +181,7 @@ export default function AgentBuilder() {
       const resp = await fetch('/api/kibana/agents');
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();
-      setKibanaAgents(data.agents || data.data || data || []);
+      setKibanaAgents(data.results || data.agents || data.data || (Array.isArray(data) ? data : []));
     } catch (err) {
       setKibanaError(err.message);
     } finally {
