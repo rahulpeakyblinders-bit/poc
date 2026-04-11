@@ -8,7 +8,7 @@ const SRE_KIBANA_AGENT = {
   focus: 'Initiator · Kibana',
   kibana: true,
   initiator: true,
-  kibanaId: 'test',
+  kibanaId: 'sre',
   responsibilities: [
     'First point of contact for any SRE or incident query.',
     'Routes to Detection, Root Cause, and Fix Proposal agents as needed.',
@@ -60,7 +60,7 @@ const ELASTIC_ANALYST_KIBANA_AGENT = {
   name: 'Elastic Analyst',
   focus: 'Data exploration & insights · Kibana',
   kibana: true,
-  kibanaId: 'elastic_analyst',
+  kibanaId: 'analyst',
   responsibilities: [
     'Runs deep ES|QL and KQL queries across all Elasticsearch indices.',
     'Surfaces trends, patterns, and statistical insights from raw data.',
@@ -632,7 +632,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
                 {isThinking ? 'Querying…' : 'Send →'}
               </button>
               <button className="pipeline-btn" onClick={() => runPipeline(transcript)} disabled={isThinking || isPipelining} title="Run Detection → Root Cause → Fix Proposal via A2A">
-                ⛓ Run Pipeline
+                🐝 Agent Swarm
               </button>
             </>
           )}

@@ -299,15 +299,6 @@ export default function AgentBuilder() {
             <span className="tab-count">{builtAgents.length}</span>
           )}
         </button>
-        <button
-          className={`tab-btn ${activeTab === 'kibana' ? 'active' : ''}`}
-          onClick={() => setActiveTab('kibana')}
-        >
-          Kibana Agents
-          {kibanaAgents.length > 0 && (
-            <span className="tab-count kibana-count">{kibanaAgents.length}</span>
-          )}
-        </button>
       </div>
 
       {/* ── BUILD TAB ── */}
@@ -523,123 +514,6 @@ export default function AgentBuilder() {
         </div>
       )}
 
-      {/* ── KIBANA AGENTS TAB ── */}
-      {activeTab === 'kibana' && (
-        <div className="agents-list-section">
-          <div className="kibana-agents-header">
-            <span className="kibana-source-label">⚡ Elastic Agent Builder · Kibana</span>
-            <button className="ghost refresh-btn" onClick={fetchKibanaAgents} disabled={kibanaLoading}>
-              {kibanaLoading ? 'Loading…' : '↻ Refresh'}
-            </button>
-          </div>
-
-          {kibanaError && (
-            <div className="kibana-error">
-              <strong>Could not load Kibana agents:</strong> {kibanaError}
-              <p>Make sure KIBANA_ENDPOINT and ELASTIC_API_KEY are set in your .env file.</p>
-            </div>
-          )}
-
-          {!kibanaError && !kibanaLoading && kibanaAgents.length === 0 && (
-            <div className="empty-agents">
-              <p>No agents found in Kibana Agent Builder.</p>
-              <button className="secondary" onClick={() => setActiveTab('build')}>
-                Build and deploy an agent →
-              </button>
-            </div>
-          )}
-
-          {kibanaAgents.length > 0 && (
-            <div className="built-agents-grid">
-              {kibanaAgents.map((agent) => (
-                <div key={agent.id} className="built-agent-card kibana-agent-card">
-                  <div className="built-agent-header">
-                    <div className="built-agent-title">
-                      <div className="built-agent-avatar kibana-avatar">{(agent.name || 'K')[0]}</div>
-                      <div>
-                        <h3>{agent.name || agent.title || 'Unnamed Agent'}</h3>
-                        {agent.description && <span>{agent.description}</span>}
-                      </div>
-                    </div>
-                    <span className="kibana-badge">Kibana</span>
-                  </div>
-
-                  {(agent.instructions || agent.system_prompt) && (
-                    <div className="system-prompt-preview">
-                      {(agent.instructions || agent.system_prompt || '').slice(0, 140)}
-                      {(agent.instructions || agent.system_prompt || '').length > 140 ? '…' : ''}
-                    </div>
-                  )}
-
-                  {agent.tools && agent.tools.length > 0 && (
-                    <div className="agent-tools-preview">
-                      {agent.tools.map((t, i) => (
-                        <span key={i} className="tool-mini-tag">🔧 {t.name || t}</span>
-                      ))}
-                    </div>
-                  )}
-
-                  <div className="agent-meta-row">
-                    {agent.model && <span className="meta-tag model-tag">{agent.model}</span>}
-                    <span className="meta-tag kibana-tag">ID: {agent.id}</span>
-                  </div>
-
-                  {/* Chat panel — converse directly with this Kibana agent */}
-                  {(() => {
-                    const kc = kibanaChat[agent.id] || {};
-                    return (
-                      <div className="test-panel kibana-chat-panel">
-                        {kc.messages && kc.messages.length > 0 && (
-                          <div className="kibana-chat-messages">
-                            {kc.messages.map((msg, mi) => (
-                              <div key={mi} className={`kibana-chat-msg ${msg.role}`}>
-                                <span className="kibana-chat-role">{msg.role === 'user' ? 'You' : agent.name?.split(' ')[0] || 'Agent'}</span>
-                                <span className="kibana-chat-text">
-                                  {msg.text || (msg.streaming && <span className="thinking-dots"><span /><span /><span /></span>)}
-                                  {msg.streaming && msg.text && <span className="cursor-blink" />}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        <div className="test-input-row">
-                          <input
-                            type="text"
-                            className="test-input"
-                            placeholder={`Ask ${agent.name || 'this agent'}…`}
-                            value={kc.prompt || ''}
-                            onChange={(e) =>
-                              setKibanaChat((prev) => ({ ...prev, [agent.id]: { ...prev[agent.id], prompt: e.target.value } }))
-                            }
-                            onKeyDown={(e) => { if (e.key === 'Enter' && kc.prompt?.trim()) chatWithKibanaAgent(agent); }}
-                            disabled={kc.loading}
-                          />
-                          <button
-                            className="primary"
-                            onClick={() => chatWithKibanaAgent(agent)}
-                            disabled={kc.loading || !kc.prompt?.trim()}
-                          >
-                            {kc.loading ? '…' : 'Chat'}
-                          </button>
-                        </div>
-                        {kc.conversationId && (
-                          <div className="kibana-conv-id">
-                            <span>Conv: {kc.conversationId.slice(0, 8)}…</span>
-                            <button className="ghost" style={{fontSize:'0.7rem', padding:'1px 6px'}}
-                              onClick={() => setKibanaChat((prev) => ({ ...prev, [agent.id]: {} }))}>
-                              New chat
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }
