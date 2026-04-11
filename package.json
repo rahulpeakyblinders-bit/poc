@@ -8,7 +8,11 @@
     "build": "vite build",
     "preview": "vite preview",
     "server": "node server/index.js",
-    "dev:all": "concurrently -n UI,API -c cyan,magenta \"npm run dev\" \"npm run server\""
+    "dev:all": "concurrently -n UI,API -c cyan,magenta \"npm run dev\" \"npm run server\"",
+    "start": "node server/index.js"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",

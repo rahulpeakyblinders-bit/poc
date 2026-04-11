@@ -1,6 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import { existsSync } from 'fs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 import Anthropic from '@anthropic-ai/sdk';
 import { Client as ElasticClient } from '@elastic/elasticsearch';
 import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
@@ -120,7 +125,15 @@ async function callElasticInference({ messages, systemPrompt, stream = false }) 
   return resp;
 }
 
-app.use(cors({ origin: ['http://localhost:4173', 'http://127.0.0.1:4173'] }));
+// In production, serve the built Vite app from dist/
+const distPath = join(__dirname, '..', 'dist');
+const isProd = existsSync(distPath);
+
+if (isProd) {
+  app.use(express.static(distPath));
+} else {
+  app.use(cors({ origin: ['http://localhost:4173', 'http://127.0.0.1:4173'] }));
+}
 app.use(express.json());
 
 // ─── Elasticsearch helpers ───────────────────────────────────────────────────
@@ -815,6 +828,11 @@ app.get('/api/mcp/tools', (_req, res) => {
     })),
   });
 });
+
+// ─── SPA fallback (production only) ──────────────────────────────────────────
+if (isProd) {
+  app.get('*', (_req, res) => res.sendFile(join(distPath, 'index.html')));
+}
 
 // ─── Start ────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3001;
