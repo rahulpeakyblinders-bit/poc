@@ -1708,3 +1708,449 @@ button {
   font-size: 0.8rem;
   padding: 2px 8px;
 }
+
+/* ─── Teams Integration Page ──────────────────────────────────────────────── */
+
+.teams-page {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 8px 0;
+}
+
+.teams-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.teams-header h2 {
+  font-size: 1.75rem;
+  margin: 12px 0 8px;
+}
+
+.teams-header p {
+  color: #3c4a5d;
+  max-width: 560px;
+  font-size: 1rem;
+}
+
+.teams-status-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 20px;
+  border-radius: 12px;
+  border: 1.5px solid;
+  min-width: 240px;
+  flex-shrink: 0;
+}
+
+.teams-status-card.configured {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #065f46;
+}
+
+.teams-status-card.unconfigured {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.teams-status-card p {
+  font-size: 0.8rem;
+  opacity: 0.8;
+  margin-top: 2px;
+}
+
+.teams-status-icon {
+  font-size: 1.5rem;
+}
+
+.teams-section {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 14px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.teams-section h3 {
+  font-size: 1.1rem;
+  color: #0d1a2b;
+}
+
+.teams-section > p {
+  color: #4b5563;
+  font-size: 0.95rem;
+}
+
+.teams-code-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  padding: 10px 14px;
+  flex-wrap: wrap;
+}
+
+.teams-code-row code {
+  flex: 1;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+  color: #1e3a5f;
+  word-break: break-all;
+}
+
+.copy-btn {
+  background: #3b82f6;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+
+.copy-btn:hover { background: #2563eb; }
+
+.teams-commands {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.teams-command-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px 16px;
+}
+
+.teams-cmd-icon {
+  font-size: 1.3rem;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.teams-command-card code {
+  display: block;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.85rem;
+  color: #7c3aed;
+  margin-bottom: 4px;
+}
+
+.teams-command-card p {
+  font-size: 0.85rem;
+  color: #4b5563;
+  margin: 0;
+}
+
+.teams-test-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.teams-select {
+  padding: 9px 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  background: #fff;
+  color: #0d1a2b;
+  cursor: pointer;
+  outline: none;
+}
+
+.teams-select:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+
+.teams-input {
+  flex: 1;
+  min-width: 200px;
+  padding: 9px 14px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  outline: none;
+  color: #0d1a2b;
+}
+
+.teams-input:focus {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59,130,246,0.15);
+}
+
+.teams-test-result {
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 16px;
+  overflow-x: auto;
+}
+
+.teams-test-result pre {
+  color: #e2e8f0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+.teams-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.teams-step {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.teams-step-num {
+  width: 32px;
+  height: 32px;
+  background: #3b82f6;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.teams-step-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1;
+}
+
+.teams-step-body strong {
+  font-size: 0.95rem;
+  color: #0d1a2b;
+}
+
+.teams-step-body p {
+  font-size: 0.875rem;
+  color: #4b5563;
+  margin: 0;
+}
+
+.teams-link {
+  font-size: 0.85rem;
+  color: #3b82f6;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.teams-link:hover {
+  text-decoration: underline;
+}
+
+/* ─── Recall.ai Live Panel ───────────────────────────────────────────────── */
+
+.recall-section {
+  border-color: #c7d2fe;
+  background: linear-gradient(135deg, #f5f3ff 0%, #fff 60%);
+}
+
+.recall-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.recall-badge {
+  display: inline-block;
+  background: #7c3aed;
+  color: #fff;
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+.recall-join-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.recall-bots {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.recall-bot-chip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  color: #065f46;
+}
+
+.recall-leave-btn {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.recall-leave-btn:hover { background: #fecaca; }
+
+.recall-keywords {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 0.875rem;
+  color: #4b5563;
+}
+
+.recall-keyword-chips {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.recall-chip {
+  background: #ede9fe;
+  color: #5b21b6;
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.recall-feed {
+  background: #0f172a;
+  border-radius: 12px;
+  padding: 16px;
+  min-height: 200px;
+  max-height: 400px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 0.82rem;
+}
+
+.recall-empty {
+  color: #64748b;
+  font-style: italic;
+  text-align: center;
+  margin: auto;
+}
+
+.recall-event {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  flex-wrap: wrap;
+}
+
+.recall-event.transcript {
+  background: rgba(255,255,255,0.06);
+}
+
+.recall-event.partial {
+  background: rgba(255,255,255,0.02);
+  opacity: 0.6;
+}
+
+.recall-event.system {
+  color: #94a3b8;
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+.recall-event.agent-thinking {
+  background: rgba(124,58,237,0.2);
+  color: #c4b5fd;
+  font-style: italic;
+}
+
+.recall-event.agent-response {
+  background: rgba(5,150,105,0.15);
+  border-left: 3px solid #059669;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.recall-event.error {
+  background: rgba(185,28,28,0.15);
+  color: #fca5a5;
+}
+
+.recall-speaker {
+  color: #7c3aed;
+  font-weight: 600;
+  white-space: nowrap;
+  min-width: 80px;
+}
+
+.recall-text {
+  color: #e2e8f0;
+  flex: 1;
+}
+
+.recall-text.dim {
+  color: #94a3b8;
+}
+
+.recall-ts {
+  color: #475569;
+  font-size: 0.72rem;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.recall-agent-label {
+  color: #34d399;
+  font-weight: 700;
+  font-size: 0.8rem;
+}
+
+.recall-agent-text {
+  color: #e2e8f0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}

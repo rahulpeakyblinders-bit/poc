@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { agents, timeline, integrations } from './agents.js';
 import VoiceAgent from './pages/VoiceAgent.jsx';
 import AgentBuilder from './pages/AgentBuilder.jsx';
+import TeamsIntegration from './pages/TeamsIntegration.jsx';
 
 const LIVE_INCIDENT_QUERY = 'Check for any incidents or issues in the last 7 days. Look for anomalies, errors, and service degradations across all indices.';
 
@@ -9,6 +10,7 @@ const TABS = [
   { id: 'dashboard', label: 'Dashboard' },
   { id: 'voice', label: 'Voice Agent' },
   { id: 'builder', label: 'Agent Builder' },
+  { id: 'teams', label: '💬 Teams' },
 ];
 
 function Dashboard({ onViewLiveIncidents, onLaunchAgent }) {
@@ -185,6 +187,7 @@ export default function App() {
         />
       )}
       {activeTab === 'builder' && <AgentBuilder />}
+      {activeTab === 'teams' && <TeamsIntegration />}
     </div>
   );
 }

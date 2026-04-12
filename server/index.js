@@ -10,6 +10,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { Client as ElasticClient } from '@elastic/elasticsearch';
 import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { BotFrameworkAdapter, ActivityTypes } from 'botbuilder';
 
 // ─── Clients ────────────────────────────────────────────────────────────────
 const app = express();
@@ -913,6 +914,371 @@ app.get('/api/workflows/:id/executions', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ─── Recall.ai Real-Time Meeting Bot ──────────────────────────────────────────
+
+const RECALL_API_KEY = process.env.RECALL_API_KEY || '';
+const RECALL_API_BASE = process.env.RECALL_API_BASE || 'https://us-east-1.recall.ai/api/v1';
+
+function recallHeaders() {
+  return {
+    'Authorization': `Token ${RECALL_API_KEY}`,
+    'Content-Type': 'application/json',
+  };
+}
+
+async function recallRequest(method, path, body) {
+  const resp = await fetch(`${RECALL_API_BASE}${path}`, {
+    method,
+    headers: recallHeaders(),
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  if (!resp.ok) {
+    const text = await resp.text();
+    throw new Error(`Recall.ai ${resp.status}: ${text}`);
+  }
+  return resp.status === 204 ? null : resp.json();
+}
+
+// In-memory registry: botId → { meetingUrl, activeBots, transcriptBuffer }
+const recallBots = new Map();
+
+// SSE clients listening on /api/recall/live
+const recallSseClients = new Set();
+
+function broadcastRecall(event, data) {
+  const payload = `data: ${JSON.stringify({ event, ...data })}\n\n`;
+  for (const res of recallSseClients) {
+    try { res.write(payload); } catch {}
+  }
+}
+
+// Keyword → agent routing for in-meeting transcript triggers
+const RECALL_KEYWORD_MAP = [
+  { pattern: /agent\s*swarm/i,       agentId: null,               label: '🐝 Agent Swarm', pipeline: true },
+  { pattern: /\bsre\b/i,             agentId: 'sre',              label: '🛡️ SRE Agent' },
+  { pattern: /\bdetection\b/i,       agentId: 'detection_agent',  label: '🔍 Detection Agent' },
+  { pattern: /root\s*cause/i,        agentId: 'root_cause_agent', label: '🧠 Root Cause Agent' },
+  { pattern: /fix\s*proposal/i,      agentId: 'solution_agent',   label: '🔧 Fix Proposal Agent' },
+  { pattern: /elastic\s*analyst/i,   agentId: 'analyst',          label: '📊 Elastic Analyst' },
+];
+
+// Debounce map: botId → debounce timer handle
+const recallDebounce = new Map();
+
+async function handleTranscriptUtterance(botId, speaker, text) {
+  broadcastRecall('transcript', { botId, speaker, text });
+
+  // Check for trigger keywords
+  const match = RECALL_KEYWORD_MAP.find(r => r.pattern.test(text));
+  if (!match) return;
+
+  // Debounce — 4 s between triggers per bot
+  if (recallDebounce.has(botId)) {
+    clearTimeout(recallDebounce.get(botId));
+  }
+  recallDebounce.set(botId, setTimeout(async () => {
+    recallDebounce.delete(botId);
+    broadcastRecall('agent_thinking', { botId, agentLabel: match.label });
+
+    try {
+      let agentResponse;
+      if (match.pipeline) {
+        agentResponse = await runTeamsPipeline(text);
+      } else {
+        agentResponse = await callKibanaAgent(match.agentId, text);
+      }
+
+      // Trim to Teams 4096 char chat limit
+      const chatMsg = `${match.label}\n\n${agentResponse}`.slice(0, 4090);
+      await recallRequest('POST', `/bot/${botId}/send_chat_message/`, {
+        message: chatMsg,
+        to: 'everyone',
+      });
+      broadcastRecall('agent_response', { botId, agentLabel: match.label, text: agentResponse });
+    } catch (err) {
+      broadcastRecall('error', { botId, error: err.message });
+    }
+  }, 4000));
+}
+
+// Join a bot to a Teams meeting
+app.post('/api/recall/bot', async (req, res) => {
+  const { meetingUrl, botName = 'Elastic AI Agent' } = req.body;
+  if (!meetingUrl) return res.status(400).json({ error: 'meetingUrl required' });
+  if (!RECALL_API_KEY) return res.status(400).json({ error: 'RECALL_API_KEY not configured' });
+
+  const webhookUrl = `${req.protocol}://${req.get('host')}/api/recall/webhook`;
+
+  try {
+    const bot = await recallRequest('POST', '/bot/', {
+      meeting_url: meetingUrl,
+      bot_name: botName,
+      recording_config: {
+        transcript: { provider: { meeting_captions: {} } },
+        realtime_endpoints: [{
+          type: 'webhook',
+          url: webhookUrl,
+          events: ['transcript.data', 'transcript.partial_data', 'participant_events.join', 'participant_events.leave'],
+        }],
+      },
+      chat: {
+        on_bot_join: {
+          send_to: 'everyone',
+          message: `👋 Elastic AI Agent joined. Ask me anything — say "SRE", "Detection", "Root Cause", "Fix Proposal", "Elastic Analyst", or "Agent Swarm" to trigger the relevant agent.`,
+        },
+      },
+      metadata: { source: 'elastic-ai-agent' },
+    });
+
+    recallBots.set(bot.id, { meetingUrl, botName, joinedAt: new Date().toISOString() });
+    broadcastRecall('bot_joined', { botId: bot.id, meetingUrl, botName });
+    res.json({ botId: bot.id, meetingUrl, status: 'joining' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Remove a bot from a meeting
+app.delete('/api/recall/bot/:id', async (req, res) => {
+  try {
+    await recallRequest('DELETE', `/bot/${req.params.id}/`);
+    recallBots.delete(req.params.id);
+    broadcastRecall('bot_left', { botId: req.params.id });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// List active bots
+app.get('/api/recall/bots', (_req, res) => {
+  const list = Array.from(recallBots.entries()).map(([id, info]) => ({ id, ...info }));
+  res.json({ bots: list, configured: !!RECALL_API_KEY });
+});
+
+// SSE stream — UI connects here to get live transcript + agent events
+app.get('/api/recall/live', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+  res.write(`data: ${JSON.stringify({ event: 'connected' })}\n\n`);
+
+  recallSseClients.add(res);
+  req.on('close', () => recallSseClients.delete(res));
+});
+
+// Webhook endpoint Recall.ai POSTs real-time events to
+app.post('/api/recall/webhook', async (req, res) => {
+  // Respond immediately to avoid retries
+  res.sendStatus(200);
+
+  const { event, data } = req.body;
+  if (!event || !data) return;
+
+  const botId = data?.bot?.id;
+
+  if (event === 'transcript.data') {
+    const words = data?.data?.words || [];
+    const text = words.map(w => w.text).join(' ').trim();
+    const speaker = data?.data?.participant?.name || 'Unknown';
+    if (text && botId) {
+      await handleTranscriptUtterance(botId, speaker, text);
+    }
+  }
+
+  if (event === 'transcript.partial_data') {
+    const words = data?.data?.words || [];
+    const text = words.map(w => w.text).join(' ').trim();
+    const speaker = data?.data?.participant?.name || 'Unknown';
+    if (text) broadcastRecall('partial', { botId, speaker, text });
+  }
+
+  if (event === 'participant_events.join') {
+    const name = data?.data?.name || 'Someone';
+    broadcastRecall('participant_join', { botId, name });
+  }
+
+  if (event === 'participant_events.leave') {
+    const name = data?.data?.name || 'Someone';
+    broadcastRecall('participant_leave', { botId, name });
+  }
+});
+
+// Recall status
+app.get('/api/recall/status', (_req, res) => {
+  res.json({ configured: !!RECALL_API_KEY, baseUrl: RECALL_API_BASE });
+});
+
+// ─── Microsoft Teams Bot Integration ─────────────────────────────────────────
+
+const MICROSOFT_APP_ID = process.env.MICROSOFT_APP_ID || '';
+const MICROSOFT_APP_PASSWORD = process.env.MICROSOFT_APP_PASSWORD || '';
+
+const teamsAdapter = new BotFrameworkAdapter({
+  appId: MICROSOFT_APP_ID,
+  appPassword: MICROSOFT_APP_PASSWORD,
+});
+
+teamsAdapter.onTurnError = async (context, error) => {
+  console.error('Teams Bot error:', error.message);
+  await context.sendActivity(`⚠️ Bot error: ${error.message}`);
+};
+
+// Agent name → Kibana ID map (mirrors VoiceAgent constants)
+const TEAMS_AGENT_MAP = {
+  'sre': 'sre',
+  'sre agent': 'sre',
+  'detection': 'detection_agent',
+  'detection agent': 'detection_agent',
+  'rootcause': 'root_cause_agent',
+  'root cause': 'root_cause_agent',
+  'root cause agent': 'root_cause_agent',
+  'fixproposal': 'solution_agent',
+  'fix proposal': 'solution_agent',
+  'fix proposal agent': 'solution_agent',
+  'analyst': 'analyst',
+  'elastic analyst': 'analyst',
+};
+
+const TEAMS_PIPELINE = [
+  { id: 'detection_agent', label: 'Detection Agent', emoji: '🔍' },
+  { id: 'root_cause_agent', label: 'Root Cause Agent', emoji: '🧠' },
+  { id: 'solution_agent', label: 'Fix Proposal Agent', emoji: '🔧' },
+];
+
+// Call a Kibana A2A agent (same logic as /api/a2a/:agentId/task)
+async function callKibanaAgent(agentId, message, contextId) {
+  const msgId = `msg-${Date.now()}`;
+  const rpcBody = {
+    id: `task-${Date.now()}`,
+    jsonrpc: '2.0',
+    method: 'message/send',
+    params: {
+      message: { messageId: msgId, role: 'user', parts: [{ kind: 'text', text: message }] },
+      ...(contextId ? { contextId } : {}),
+    },
+  };
+  const resp = await fetch(`${KIBANA_ENDPOINT}/api/agent_builder/a2a/${agentId}`, {
+    method: 'POST',
+    headers: kibanaHeaders(),
+    body: JSON.stringify(rpcBody),
+  });
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`Agent ${agentId} returned ${resp.status}: ${body}`);
+  }
+  const data = await resp.json();
+  if (data?.error) throw new Error(data.error.message || JSON.stringify(data.error));
+  const result = data?.result ?? data;
+  const parts = result?.parts || [];
+  return parts.map(p => p.text || p.content || '').filter(Boolean).join('\n') || JSON.stringify(result);
+}
+
+// Run the full Agent Swarm pipeline (Detection → Root Cause → Fix Proposal)
+async function runTeamsPipeline(query) {
+  let accumulated = query;
+  const sections = [];
+  for (const agent of TEAMS_PIPELINE) {
+    const response = await callKibanaAgent(agent.id, accumulated);
+    sections.push(`**${agent.emoji} ${agent.label}**\n${response}`);
+    accumulated = `${query}\n\nPrevious analysis:\n${response}`;
+  }
+  return sections.join('\n\n---\n\n');
+}
+
+// Teams bot message handler — routes @mentions to the correct Kibana agent
+async function handleTeamsMessage(context) {
+  if (context.activity.type !== ActivityTypes.Message) return;
+
+  // Strip the bot @mention XML tag (<at>BotName</at>) Teams prepends
+  let text = (context.activity.text || '')
+    .replace(/<at[^>]*>[^<]*<\/at>/gi, '')
+    .trim();
+
+  if (!text) {
+    await context.sendActivity(
+      '👋 Hi! Mention me with a command:\n' +
+      '• `@SRE Agent <query>` — route to SRE Agent\n' +
+      '• `@Detection <query>` — Detection Agent\n' +
+      '• `@RootCause <query>` — Root Cause Agent\n' +
+      '• `@FixProposal <query>` — Fix Proposal Agent\n' +
+      '• `@ElasticAnalyst <query>` — Elastic Analyst\n' +
+      '• `@AgentSwarm <query>` — 🐝 Full pipeline (Detection → Root Cause → Fix Proposal)'
+    );
+    return;
+  }
+
+  const lower = text.toLowerCase();
+
+  // Agent Swarm pipeline
+  if (lower.startsWith('agentswarm') || /agent\s*swarm/i.test(lower)) {
+    const query = text.replace(/agent\s*swarm/i, '').trim() || 'Analyse the current system state and identify any incidents';
+    await context.sendActivity('🐝 **Agent Swarm** initiated — running Detection → Root Cause → Fix Proposal…');
+    try {
+      const result = await runTeamsPipeline(query);
+      // Teams message limit is 28 KB; split if needed
+      if (result.length > 25000) {
+        const half = Math.ceil(result.length / 2);
+        await context.sendActivity(result.slice(0, half));
+        await context.sendActivity(result.slice(half));
+      } else {
+        await context.sendActivity(result);
+      }
+    } catch (err) {
+      await context.sendActivity(`❌ Pipeline error: ${err.message}`);
+    }
+    return;
+  }
+
+  // Specific agent routing
+  let targetAgentId = null;
+  let query = text;
+
+  for (const [key, agentId] of Object.entries(TEAMS_AGENT_MAP)) {
+    if (lower.startsWith(key)) {
+      targetAgentId = agentId;
+      query = text.slice(key.length).trim();
+      break;
+    }
+  }
+
+  if (targetAgentId) {
+    const label = Object.keys(TEAMS_AGENT_MAP).find(k => TEAMS_AGENT_MAP[k] === targetAgentId && k.includes(' ')) || targetAgentId;
+    await context.sendActivity(`🤖 Routing to **${label}**…`);
+    try {
+      const result = await callKibanaAgent(targetAgentId, query || 'Give me a status summary');
+      await context.sendActivity(result);
+    } catch (err) {
+      await context.sendActivity(`❌ ${err.message}`);
+    }
+    return;
+  }
+
+  // Default: SRE Agent handles anything else
+  await context.sendActivity('🔍 Routing to **SRE Agent**…');
+  try {
+    const result = await callKibanaAgent('sre', text);
+    await context.sendActivity(result);
+  } catch (err) {
+    await context.sendActivity(`❌ ${err.message}`);
+  }
+}
+
+// Webhook endpoint Teams calls for every activity
+app.post('/api/teams/messages', (req, res) => {
+  teamsAdapter.processActivity(req, res, handleTeamsMessage);
+});
+
+// Status endpoint — tells the UI whether Teams is configured
+app.get('/api/teams/status', (_req, res) => {
+  res.json({
+    configured: !!(MICROSOFT_APP_ID && MICROSOFT_APP_PASSWORD),
+    appId: MICROSOFT_APP_ID || null,
+    webhookPath: '/api/teams/messages',
+  });
 });
 
 // ─── SPA fallback (production only) ──────────────────────────────────────────
