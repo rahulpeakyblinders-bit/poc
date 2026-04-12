@@ -152,6 +152,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
   const sendMessageRef = useRef(null); // always points to latest sendMessage
   const runPipelineRef = useRef(null); // always points to latest runPipeline
   const swarmModeRef = useRef(false);  // readable inside recognition.onend closure
+  const longPressTimerRef = useRef(null); // for single-button long-press → swarm mode
 
   // Check server + Elastic health + MCP tools on mount
   useEffect(() => {
@@ -423,13 +424,35 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
     // onend will fire automatically and handle the send
   }, []);
 
-  const handleMicClick = useCallback(() => {
-    if (isListening) {
-      stopListening();
-    } else {
+  // Single-button: short tap = normal mode, hold 600ms = swarm mode
+  const handleMicPointerDown = useCallback((e) => {
+    e.preventDefault();
+    if (isThinking || isPipelining) return;
+    if (isListening) { stopListening(); return; }
+
+    // Start a timer — if held 600ms, activate Swarm mode
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      setSwarmMode(true);
+      swarmModeRef.current = true;
       startListening();
+    }, 600);
+  }, [isListening, isThinking, isPipelining, startListening, stopListening]);
+
+  const handleMicPointerUp = useCallback((e) => {
+    e.preventDefault();
+    if (longPressTimerRef.current) {
+      // Timer still pending → short tap → normal mode
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+      if (!isListening && !isThinking && !isPipelining) {
+        setSwarmMode(false);
+        swarmModeRef.current = false;
+        startListening();
+      }
     }
-  }, [isListening, startListening, stopListening]);
+    // If timer already fired, we're already listening in swarm mode — do nothing
+  }, [isListening, isThinking, isPipelining, startListening]);
 
   const clearConversation = () => {
     setConversation([]);
@@ -695,23 +718,25 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
             disabled={isThinking}
           />
           <button
-            className={`swarm-mode-toggle ${swarmMode ? 'active' : ''}`}
-            onClick={() => setSwarmMode(v => !v)}
+            className={`mic-btn ${isListening ? (swarmMode ? 'listening-swarm' : 'listening') : ''} ${isThinking || isPipelining ? 'disabled' : ''}`}
+            onPointerDown={handleMicPointerDown}
+            onPointerUp={handleMicPointerUp}
+            onPointerLeave={handleMicPointerUp}
             disabled={isThinking || isPipelining}
-            title={swarmMode ? 'Swarm Mode ON — voice triggers full pipeline. Click to disable.' : 'Enable Swarm Mode — voice triggers Agent Swarm automatically'}
-          >
-            🐝
-          </button>
-          <button
-            className={`mic-btn ${isListening ? 'listening' : ''} ${isThinking || isPipelining ? 'disabled' : ''}`}
-            onClick={handleMicClick}
-            disabled={isThinking || isPipelining}
-            title={isPipelining ? 'Wait for SWARM to finish' : isListening ? 'Stop and send' : swarmMode ? 'Speak — will run Agent Swarm' : 'Start voice input'}
+            title={
+              isPipelining ? 'Wait for SWARM to finish' :
+              isListening ? (swarmMode ? '🐝 Swarm listening — release to send' : 'Listening — release to send') :
+              'Tap for voice · Hold 600ms for 🐝 Swarm'
+            }
           >
             {isListening ? (
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="6" width="12" height="12" rx="2" />
-              </svg>
+              swarmMode ? (
+                <span style={{ fontSize: 20 }}>🐝</span>
+              ) : (
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              )
             ) : (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="9" y="2" width="6" height="13" rx="3" fill="currentColor" stroke="none" />

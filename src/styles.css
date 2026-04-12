@@ -713,39 +713,6 @@ button {
   opacity: 0.6;
 }
 
-.swarm-mode-toggle {
-  width: 44px;
-  height: 44px;
-  border-radius: 50%;
-  background: #1e293b;
-  border: 2px solid #334155;
-  color: #94a3b8;
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, box-shadow 0.15s, transform 0.15s;
-  padding: 0;
-}
-.swarm-mode-toggle:hover {
-  background: #2d3f55;
-  border-color: #f59e0b;
-  transform: scale(1.05);
-}
-.swarm-mode-toggle.active {
-  background: #78350f;
-  border-color: #f59e0b;
-  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.25);
-  animation: mic-pulse 2s infinite;
-}
-.swarm-mode-toggle:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  transform: none;
-}
-
 .mic-btn {
   width: 48px;
   height: 48px;
@@ -771,10 +738,23 @@ button {
   animation: mic-pulse 1.5s infinite;
 }
 
+/* Amber state when listening in 🐝 Swarm mode */
+.mic-btn.listening-swarm {
+  background: #92400e;
+  box-shadow: 0 0 0 6px rgba(245, 158, 11, 0.25);
+  animation: swarm-pulse 1.5s infinite;
+  font-size: 20px;
+}
+
 .mic-btn.disabled {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none;
+}
+
+@keyframes swarm-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
+  50% { box-shadow: 0 0 0 12px rgba(245, 158, 11, 0); }
 }
 
 @keyframes mic-pulse {
