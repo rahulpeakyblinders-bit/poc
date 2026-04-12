@@ -141,6 +141,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
   const [lastFixProposal, setLastFixProposal] = useState(null); // text from Fix Proposal Agent
   const [workflowState, setWorkflowState] = useState(null);
   // workflowState: { phase: 'generating'|'ready'|'creating'|'running'|'done'|'error', yaml, workflowId, executionId, error }
+  const [swarmMode, setSwarmMode] = useState(false); // voice → Agent Swarm pipeline
   const [serverStatus, setServerStatus] = useState('checking');
   const [elasticStatus, setElasticStatus] = useState(null);
   const [mcpStatus, setMcpStatus] = useState(null); // { connected, tools }
@@ -149,6 +150,8 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
   const conversationEndRef = useRef(null);
   const messagesRef = useRef([]);
   const sendMessageRef = useRef(null); // always points to latest sendMessage
+  const runPipelineRef = useRef(null); // always points to latest runPipeline
+  const swarmModeRef = useRef(false);  // readable inside recognition.onend closure
 
   // Check server + Elastic health + MCP tools on mount
   useEffect(() => {
@@ -372,8 +375,10 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
     [selectedAgent, isThinking, isPipelining, serverStatus, speak]
   );
 
-  // Keep ref in sync so autoQuery effect always calls the latest sendMessage
+  // Keep refs in sync so recognition.onend closure always calls latest functions/state
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
+  useEffect(() => { runPipelineRef.current = runPipeline; }, [runPipeline]);
+  useEffect(() => { swarmModeRef.current = swarmMode; }, [swarmMode]);
 
   const startListening = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -395,10 +400,16 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
       capturedText = final || interim;
       setTranscript(capturedText);
     };
-    // Auto-send as soon as speech ends — no button click needed
+    // Auto-send as soon as speech ends — route to Swarm or single agent
     recognition.onend = () => {
       setIsListening(false);
-      if (capturedText.trim()) sendMessageRef.current?.(capturedText);
+      if (capturedText.trim()) {
+        if (swarmModeRef.current) {
+          runPipelineRef.current?.(capturedText);
+        } else {
+          sendMessageRef.current?.(capturedText);
+        }
+      }
     };
     recognition.onerror = (e) => { if (e.error !== 'no-speech') console.error(e.error); setIsListening(false); };
     recognitionRef.current = recognition;
@@ -681,10 +692,18 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
             disabled={isThinking}
           />
           <button
+            className={`swarm-mode-toggle ${swarmMode ? 'active' : ''}`}
+            onClick={() => setSwarmMode(v => !v)}
+            disabled={isThinking || isPipelining}
+            title={swarmMode ? 'Swarm Mode ON — voice triggers full pipeline. Click to disable.' : 'Enable Swarm Mode — voice triggers Agent Swarm automatically'}
+          >
+            🐝
+          </button>
+          <button
             className={`mic-btn ${isListening ? 'listening' : ''} ${isThinking || isPipelining ? 'disabled' : ''}`}
             onClick={handleMicClick}
             disabled={isThinking || isPipelining}
-            title={isPipelining ? 'Wait for SWARM to finish' : isListening ? 'Stop and send' : 'Start voice input'}
+            title={isPipelining ? 'Wait for SWARM to finish' : isListening ? 'Stop and send' : swarmMode ? 'Speak — will run Agent Swarm' : 'Start voice input'}
           >
             {isListening ? (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
@@ -789,7 +808,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
                 <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.1}s` }} />
               ))}
             </div>
-            <span>Listening — will auto-send when you stop speaking</span>
+            <span>{swarmMode ? '🐝 Swarm Mode — will launch Agent Swarm when done' : 'Listening — will auto-send when you stop speaking'}</span>
           </div>
         )}
       </div>
