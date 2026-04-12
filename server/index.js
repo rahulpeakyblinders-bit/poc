@@ -776,44 +776,73 @@ app.post('/api/a2a/:agentId/task', async (req, res) => {
     },
   };
 
-  try {
-    const url = `${KIBANA_ENDPOINT}/api/agent_builder/a2a/${req.params.agentId}`;
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: kibanaHeaders(),
-      body: JSON.stringify(rpcBody),
-    });
+  const agentId = req.params.agentId;
+  const MAX_RETRIES = 3;
+  const TIMEOUT_MS = 120_000;
 
-    if (!resp.ok) {
-      const body = await resp.text();
-      return res.status(resp.status).json({ error: `Kibana ${resp.status}: ${body}` });
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      const url = `${KIBANA_ENDPOINT}/api/agent_builder/a2a/${agentId}`;
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: kibanaHeaders(),
+        body: JSON.stringify(rpcBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      // Retry on Kibana gateway timeouts
+      if ([502, 503, 504].includes(resp.status)) {
+        const body = await resp.text();
+        lastErr = `Kibana ${resp.status}: ${body}`;
+        if (attempt < MAX_RETRIES) {
+          const delay = attempt * 3000;
+          console.warn(`   A2A:  ${agentId} ${resp.status} — retrying in ${delay / 1000}s (attempt ${attempt}/${MAX_RETRIES})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        return res.status(resp.status).json({ error: lastErr });
+      }
+
+      if (!resp.ok) {
+        const body = await resp.text();
+        return res.status(resp.status).json({ error: `Kibana ${resp.status}: ${body}` });
+      }
+
+      const data = await resp.json();
+      if (data?.error) {
+        return res.status(400).json({ error: data.error.message || JSON.stringify(data.error), raw: data });
+      }
+
+      const result = data?.result ?? data;
+      const parts = result?.parts || [];
+      const message_text =
+        parts.map(p => p.text || p.content || '').filter(Boolean).join('\n') ||
+        (typeof result === 'string' ? result : null) ||
+        JSON.stringify(result);
+
+      return res.json({
+        id: data.id,
+        conversationId: result?.contextId,
+        taskId: result?.taskId,
+        message: message_text,
+        raw: data,
+      });
+
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err.name === 'AbortError' ? `Agent ${agentId} timed out after ${TIMEOUT_MS / 1000}s` : err.message;
+      if (attempt < MAX_RETRIES && (err.name === 'AbortError' || err.code === 'ECONNRESET')) {
+        const delay = attempt * 3000;
+        console.warn(`   A2A:  ${agentId} error — retrying in ${delay / 1000}s: ${lastErr}`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      return res.status(500).json({ error: lastErr });
     }
-
-    const data = await resp.json();
-
-    // Handle JSON-RPC error
-    if (data?.error) {
-      return res.status(400).json({ error: data.error.message || JSON.stringify(data.error), raw: data });
-    }
-
-    // Normalise A2A message/send response (protocol 0.3.0)
-    // result.parts[] contains { kind: 'text', text: '...' }
-    const result = data?.result ?? data;
-    const parts = result?.parts || [];
-    const message_text =
-      parts.map(p => p.text || p.content || '').filter(Boolean).join('\n') ||
-      (typeof result === 'string' ? result : null) ||
-      JSON.stringify(result);
-
-    res.json({
-      id: data.id,
-      conversationId: result?.contextId,   // use contextId for multi-turn continuity
-      taskId: result?.taskId,
-      message: message_text,
-      raw: data,
-    });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
   }
 });
 
@@ -1149,8 +1178,8 @@ const TEAMS_PIPELINE = [
   { id: 'solution_agent', label: 'Fix Proposal Agent', emoji: '🔧' },
 ];
 
-// Call a Kibana A2A agent (same logic as /api/a2a/:agentId/task)
-async function callKibanaAgent(agentId, message, contextId) {
+// Call a Kibana A2A agent — with retry on 502/503/504 (backend timeout)
+async function callKibanaAgent(agentId, message, contextId, { retries = 3, timeoutMs = 120_000 } = {}) {
   const msgId = `msg-${Date.now()}`;
   const rpcBody = {
     id: `task-${Date.now()}`,
@@ -1161,20 +1190,61 @@ async function callKibanaAgent(agentId, message, contextId) {
       ...(contextId ? { contextId } : {}),
     },
   };
-  const resp = await fetch(`${KIBANA_ENDPOINT}/api/agent_builder/a2a/${agentId}`, {
-    method: 'POST',
-    headers: kibanaHeaders(),
-    body: JSON.stringify(rpcBody),
-  });
-  if (!resp.ok) {
-    const body = await resp.text();
-    throw new Error(`Agent ${agentId} returned ${resp.status}: ${body}`);
+
+  let lastErr;
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const resp = await fetch(`${KIBANA_ENDPOINT}/api/agent_builder/a2a/${agentId}`, {
+        method: 'POST',
+        headers: kibanaHeaders(),
+        body: JSON.stringify(rpcBody),
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+
+      // Retry on gateway errors (Kibana backend closed connection)
+      if ([502, 503, 504].includes(resp.status)) {
+        const body = await resp.text();
+        lastErr = new Error(`Agent ${agentId} returned ${resp.status}: ${body}`);
+        if (attempt < retries) {
+          const delay = attempt * 3000; // 3 s, 6 s, 9 s
+          console.warn(`   A2A:  ${agentId} ${resp.status} — retrying in ${delay / 1000}s (attempt ${attempt}/${retries})`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw lastErr;
+      }
+
+      if (!resp.ok) {
+        const body = await resp.text();
+        throw new Error(`Agent ${agentId} returned ${resp.status}: ${body}`);
+      }
+
+      const data = await resp.json();
+      if (data?.error) throw new Error(data.error.message || JSON.stringify(data.error));
+      const result = data?.result ?? data;
+      const parts = result?.parts || [];
+      return parts.map(p => p.text || p.content || '').filter(Boolean).join('\n') || JSON.stringify(result);
+
+    } catch (err) {
+      clearTimeout(timer);
+      if (err.name === 'AbortError') {
+        lastErr = new Error(`Agent ${agentId} timed out after ${timeoutMs / 1000}s`);
+      } else {
+        lastErr = err;
+      }
+      if (attempt < retries && (err.name === 'AbortError' || err.code === 'ECONNRESET')) {
+        const delay = attempt * 3000;
+        console.warn(`   A2A:  ${agentId} error — retrying in ${delay / 1000}s (attempt ${attempt}/${retries}): ${lastErr.message}`);
+        await new Promise(r => setTimeout(r, delay));
+        continue;
+      }
+      throw lastErr;
+    }
   }
-  const data = await resp.json();
-  if (data?.error) throw new Error(data.error.message || JSON.stringify(data.error));
-  const result = data?.result ?? data;
-  const parts = result?.parts || [];
-  return parts.map(p => p.text || p.content || '').filter(Boolean).join('\n') || JSON.stringify(result);
+  throw lastErr;
 }
 
 // Run the full Agent Swarm pipeline (Detection → Root Cause → Fix Proposal)
