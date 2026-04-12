@@ -908,13 +908,14 @@ app.get('/api/workflows/list', async (_req, res) => {
 });
 
 // Create a workflow in Kibana
+// Correct path: POST /api/workflows/workflow  body: { yaml: "..." }
 app.post('/api/workflows/create', async (req, res) => {
   const { yaml } = req.body;
   if (!yaml) return res.status(400).json({ error: 'yaml required' });
   try {
-    const data = await kibanaFetch('/api/workflows', {
+    const data = await kibanaFetch('/api/workflows/workflow', {
       method: 'POST',
-      body: JSON.stringify({ content: yaml }),
+      body: JSON.stringify({ yaml }),
     });
     res.json(data);
   } catch (err) {
@@ -923,11 +924,12 @@ app.post('/api/workflows/create', async (req, res) => {
 });
 
 // Trigger a workflow run
+// Correct path: POST /api/workflows/workflow/{id}/run  body: { inputs: {} }
 app.post('/api/workflows/:id/run', async (req, res) => {
   try {
-    const data = await kibanaFetch(`/api/workflows/${req.params.id}/run`, {
+    const data = await kibanaFetch(`/api/workflows/workflow/${req.params.id}/run`, {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify({ inputs: req.body?.inputs || {} }),
     });
     res.json(data);
   } catch (err) {
@@ -936,9 +938,10 @@ app.post('/api/workflows/:id/run', async (req, res) => {
 });
 
 // Get workflow execution status
-app.get('/api/workflows/:id/executions', async (req, res) => {
+// Correct path: GET /api/workflows/executions/{executionId}
+app.get('/api/workflows/executions/:executionId', async (req, res) => {
   try {
-    const data = await kibanaFetch(`/api/workflows/${req.params.id}/executions`);
+    const data = await kibanaFetch(`/api/workflows/executions/${req.params.executionId}?includeOutput=true`);
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });

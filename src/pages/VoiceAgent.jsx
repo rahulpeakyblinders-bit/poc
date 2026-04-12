@@ -520,7 +520,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
   const deployWorkflow = useCallback(async (yaml) => {
     setWorkflowState(prev => ({ ...prev, phase: 'creating' }));
     try {
-      // Create the workflow
+      // 1. Create: POST /api/workflows/workflow  → returns { id, name, ... }
       const createRes = await fetch('/api/workflows/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -529,22 +529,22 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
       const createData = await createRes.json();
       if (createData.error) throw new Error(`Create failed: ${createData.error}`);
 
-      const workflowId = createData.id || createData.workflow_id || createData._id;
+      const workflowId = createData.id;
       setWorkflowState(prev => ({ ...prev, phase: 'running', workflowId }));
 
       if (workflowId) {
-        // Run the workflow
+        // 2. Run: POST /api/workflows/workflow/{id}/run  → returns { workflowExecutionId }
         const runRes = await fetch(`/api/workflows/${workflowId}/run`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
+          body: JSON.stringify({ inputs: {} }),
         });
         const runData = await runRes.json();
         if (runData.error) throw new Error(`Run failed: ${runData.error}`);
-        const executionId = runData.id || runData.execution_id || runData._id;
+        // Kibana returns { workflowExecutionId: "exec-..." }
+        const executionId = runData.workflowExecutionId || runData.id;
         setWorkflowState(prev => ({ ...prev, phase: 'done', workflowId, executionId }));
       } else {
-        // Created but no ID returned — still treat as success
         setWorkflowState(prev => ({ ...prev, phase: 'done' }));
       }
     } catch (err) {
@@ -757,7 +757,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
               )}
               {workflowState.phase === 'done' && (
                 <div className="workflow-status done">
-                  ✅ Workflow deployed{workflowState.workflowId ? ` (ID: ${workflowState.workflowId})` : ''}
+                  ✅ Workflow deployed{workflowState.workflowId ? ` · ID: ${workflowState.workflowId}` : ''}
                   {workflowState.executionId && <span> · Execution: {workflowState.executionId}</span>}
                   <button className="ghost workflow-dismiss" onClick={() => setWorkflowState(null)}>✕</button>
                 </div>
