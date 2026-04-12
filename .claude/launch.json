@@ -11,7 +11,8 @@
       "name": "API Server (Express + Anthropic)",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server/index.js"],
-      "port": 3001
+      "port": 3000,
+      "env": { "PORT": "3000" }
     }
   ]
 }

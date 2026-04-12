@@ -218,7 +218,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
 
   const sendMessage = useCallback(
     async (text) => {
-      if (!text.trim() || isThinking) return;
+      if (!text.trim() || isThinking || isPipelining) return;
 
       const userMsg = { role: 'user', content: text };
       const newMessages = [...messagesRef.current, userMsg];
@@ -369,7 +369,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
       setIsThinking(false);
       if (fullResponse && !fullResponse.startsWith('Error:')) speak(fullResponse);
     },
-    [selectedAgent, isThinking, serverStatus, speak]
+    [selectedAgent, isThinking, isPipelining, serverStatus, speak]
   );
 
   // Keep ref in sync so autoQuery effect always calls the latest sendMessage
@@ -482,12 +482,17 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
           };
           return updated;
         });
+
+        // 🔊 Speak each agent response as it arrives
+        if (!data.error) speak(text);
+
       } catch (err) {
+        const errText = `⚠️ ${err.message}`;
         setConversation(prev => {
           const updated = [...prev];
           const last = updated.findLastIndex(m => m.agentName === agent.label && m.streaming);
           if (last !== -1) updated[last] = {
-            role: 'assistant', text: `⚠️ ${err.message}`, agentName: agent.label, agentColor: agent.color, agentStep: agent.step,
+            role: 'assistant', text: errText, agentName: agent.label, agentColor: agent.color, agentStep: agent.step,
           };
           return updated;
         });
@@ -496,7 +501,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
 
     setPipelineStep(null);
     setIsPipelining(false);
-  }, [isPipelining]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPipelining, speak]); // eslint-disable-line react-hooks/exhaustive-deps // eslint-disable-line react-hooks/exhaustive-deps
 
   // Generate Elastic Workflow YAML from the last fix proposal
   const generateWorkflow = useCallback(async () => {
@@ -676,10 +681,10 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
             disabled={isThinking}
           />
           <button
-            className={`mic-btn ${isListening ? 'listening' : ''} ${isThinking ? 'disabled' : ''}`}
+            className={`mic-btn ${isListening ? 'listening' : ''} ${isThinking || isPipelining ? 'disabled' : ''}`}
             onClick={handleMicClick}
-            disabled={isThinking}
-            title={isListening ? 'Stop and send' : 'Start voice input'}
+            disabled={isThinking || isPipelining}
+            title={isPipelining ? 'Wait for SWARM to finish' : isListening ? 'Stop and send' : 'Start voice input'}
           >
             {isListening ? (
               <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
@@ -784,7 +789,7 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
                 <div key={i} className="wave-bar" style={{ animationDelay: `${i * 0.1}s` }} />
               ))}
             </div>
-            <span>Listening — press mic to send</span>
+            <span>Listening — will auto-send when you stop speaking</span>
           </div>
         )}
       </div>
