@@ -377,8 +377,8 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
 
   // Keep refs in sync so recognition.onend closure always calls latest functions/state
   useEffect(() => { sendMessageRef.current = sendMessage; }, [sendMessage]);
-  useEffect(() => { runPipelineRef.current = runPipeline; }, [runPipeline]);
   useEffect(() => { swarmModeRef.current = swarmMode; }, [swarmMode]);
+  // runPipelineRef sync is placed after runPipeline is defined (below)
 
   const startListening = useCallback(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -512,7 +512,10 @@ export default function VoiceAgent({ autoQuery, onAutoQueryConsumed, launchAgent
 
     setPipelineStep(null);
     setIsPipelining(false);
-  }, [isPipelining, speak]); // eslint-disable-line react-hooks/exhaustive-deps // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isPipelining, speak]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Sync runPipelineRef here — AFTER runPipeline is declared (avoids TDZ crash)
+  useEffect(() => { runPipelineRef.current = runPipeline; }, [runPipeline]);
 
   // Generate Elastic Workflow YAML from the last fix proposal
   const generateWorkflow = useCallback(async () => {
